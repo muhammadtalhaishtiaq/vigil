@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vigil — Risk Intelligence Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Cabinet+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════
+   TOKENS
+═══════════════════════════════════ */
+:root {
+  --bg:#070809; --bg2:#0b0d10; --sf:#101316; --sf2:#161b21; --sf3:#1c2229;
+  --br:#1c2229; --br2:#252d38;
+  --g:#00e676; --gd:rgba(0,230,118,.09); --gg:rgba(0,230,118,.2);
+  --or:#ff9100; --re:#ff5252; --ye:#ffd740; --bl:#448aff; --pu:#ce93d8;
+  --tx:#dde3ea; --tx2:#6b7787; --tx3:#2e3844;
+  --mono:'DM Mono',monospace; --head:'Cabinet Grotesk',sans-serif;
+  --r:8px; --r2:12px;
+}
+[data-theme=light]{
+  --bg:#f0f2f6; --bg2:#e8ecf1; --sf:#fff; --sf2:#f5f7fa; --sf3:#edf0f5;
+  --br:#dde2ea; --br2:#cdd4df;
+  --tx:#0c1117; --tx2:#4a5568; --tx3:#9aaabb;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:var(--head);background:var(--bg);color:var(--tx);font-size:12px;transition:background .2s,color .2s;}
+
+/* ── scrollbars ── */
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--br2);border-radius:2px;}
+
+/* ── shell ── */
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+/* ═══════════════════════════════════
+   ROW 1 — HEADER  48px
+═══════════════════════════════════ */
+.hdr{
+  height:48px;flex-shrink:0;background:var(--sf);
+  border-bottom:1px solid var(--br);
+  display:flex;align-items:center;padding:0 14px;gap:10px;z-index:400;
+}
+.logo{
+  display:flex;align-items:center;gap:7px;text-decoration:none;flex-shrink:0;
+}
+.logo-glyph{
+  width:28px;height:28px;border:1.5px solid var(--g);border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;animation:logoPulse 3s ease-in-out infinite;
+}
+@keyframes logoPulse{0%,100%{box-shadow:0 0 0 0 var(--gg);}60%{box-shadow:0 0 0 7px transparent;}}
+.logo-name{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--g);letter-spacing:.22em;}
+.vdiv{width:1px;height:22px;background:var(--br2);flex-shrink:0;}
+
+/* agent flow */
+.aflow{flex:1;display:flex;align-items:center;gap:0;overflow:hidden;min-width:0;}
+.afn{
+  display:flex;align-items:center;gap:4px;padding:4px 7px;border-radius:5px;
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;color:var(--tx3);
+  cursor:default;transition:all .25s;white-space:nowrap;position:relative;
+}
+.afn.done{color:var(--g);opacity:.55;}
+.afn.active{background:var(--gd);color:var(--g);box-shadow:0 0 14px var(--gg);}
+.afn.err{color:var(--re);}
+.afd{width:6px;height:6px;border-radius:50%;background:var(--tx3);flex-shrink:0;transition:all .3s;}
+.afn.done .afd{background:var(--g);}
+.afn.active .afd{background:var(--g);animation:dotPulse .8s ease-in-out infinite;}
+.afn.err .afd{background:var(--re);}
+@keyframes dotPulse{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.9);opacity:.25;}}
+.afx{font-size:8px;color:var(--tx3);margin:0 1px;flex-shrink:0;pointer-events:none;}
+
+/* header right */
+.hright{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.live-badge{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:8.5px;color:var(--re);letter-spacing:.1em;}
+.ldot{width:6px;height:6px;border-radius:50%;background:var(--re);animation:blink 1.2s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.15;}}
+.hclock{font-family:var(--mono);font-size:8.5px;color:var(--tx3);}
+.prof-pill{
+  display:flex;align-items:center;gap:6px;background:var(--sf2);
+  border:1px solid var(--br2);border-radius:6px;padding:4px 10px;
+  font-family:var(--mono);font-size:9px;color:var(--tx2);
+  text-decoration:none;transition:all .2s;white-space:nowrap;cursor:pointer;
+}
+.prof-pill:hover{border-color:var(--g);color:var(--g);}
+.prof-pill .pdot{width:6px;height:6px;border-radius:50%;background:var(--g);}
+.tbtn{
+  width:28px;height:28px;background:var(--sf2);border:1px solid var(--br2);
+  border-radius:6px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:13px;transition:all .2s;flex-shrink:0;
+}
+.tbtn:hover{border-color:var(--g);}
+
+/* ═══════════════════════════════════
+   ROW 2 — VERDICT BAR  42px
+═══════════════════════════════════ */
+.vbar{
+  height:42px;flex-shrink:0;background:var(--sf);
+  border-bottom:1px solid var(--br);
+  display:flex;align-items:center;padding:0 14px;gap:10px;
+  overflow:hidden;z-index:300;
+}
+.vscore{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.vsnum{font-family:var(--head);font-size:24px;font-weight:800;color:var(--or);line-height:1;}
+.vstier{font-family:var(--mono);font-size:8px;background:rgba(255,145,0,.12);border:1px solid rgba(255,145,0,.3);border-radius:3px;padding:2px 7px;color:var(--or);letter-spacing:.1em;}
+.vsdir{font-family:var(--mono);font-size:9px;color:var(--tx3);}
+.vtext{flex:1;font-family:var(--head);font-size:11.5px;font-weight:600;color:var(--tx);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.vtext em{color:var(--or);font-style:normal;}
+.vchips{display:flex;gap:5px;flex-shrink:0;}
+.vc{font-family:var(--mono);font-size:8px;background:var(--sf2);border:1px solid var(--br2);border-radius:10px;padding:3px 9px;color:var(--tx3);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.vc:hover{border-color:var(--g);color:var(--g);background:var(--gd);}
+
+/* ═══════════════════════════════════
+   ROW 3 — RISK + ACTION STRIP  ~52px
+   Hidden until first analysis
+═══════════════════════════════════ */
+.rastrip{
+  flex-shrink:0;background:var(--bg2);border-bottom:1px solid var(--br);
+  padding:6px 14px;display:none;align-items:center;gap:7px;
+  flex-wrap:nowrap;overflow:hidden;
+}
+.rastrip.on{display:flex;}
+.sl{font-family:var(--mono);font-size:8px;letter-spacing:.15em;color:var(--tx3);text-transform:uppercase;flex-shrink:0;white-space:nowrap;}
+.rchip{
+  display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:6px;
+  border:1px solid;cursor:pointer;transition:all .2s;white-space:nowrap;flex-shrink:0;
+}
+.rchip:hover{transform:translateY(-1px);}
+.rc1{background:rgba(255,82,82,.07);border-color:rgba(255,82,82,.25);color:var(--re);}
+.rc2{background:rgba(255,145,0,.07);border-color:rgba(255,145,0,.25);color:var(--or);}
+.rc3{background:rgba(255,215,64,.07);border-color:rgba(255,215,64,.25);color:var(--ye);}
+.achip{
+  display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:6px;
+  border:1px solid rgba(0,230,118,.2);background:var(--gd);color:var(--g);
+  cursor:pointer;transition:all .2s;white-space:nowrap;flex-shrink:0;
+}
+.achip:hover{transform:translateY(-1px);box-shadow:0 4px 12px var(--gg);}
+.chip-txt{font-family:var(--mono);font-size:8.5px;letter-spacing:.02em;}
+.chip-meta{font-size:8px;background:rgba(0,0,0,.2);border-radius:2px;padding:1px 4px;font-family:var(--mono);}
+.sdiv{width:1px;height:26px;background:var(--br2);flex-shrink:0;}
+
+/* ═══════════════════════════════════
+   POPUP
+═══════════════════════════════════ */
+.popup{
+  position:fixed;z-index:9999;background:var(--sf);border:1px solid var(--br2);
+  border-radius:var(--r2);padding:16px;width:290px;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);display:none;
+  animation:popIn .15s ease;
+}
+.popup.open{display:block;}
+@keyframes popIn{from{opacity:0;transform:scale(.94) translateY(4px);}to{opacity:1;transform:scale(1) translateY(0);}}
+.pop-close{position:absolute;top:10px;right:12px;color:var(--tx3);cursor:pointer;font-size:15px;line-height:1;}
+.pop-close:hover{color:var(--tx);}
+.pop-type{font-family:var(--mono);font-size:8px;letter-spacing:.15em;color:var(--tx3);text-transform:uppercase;margin-bottom:5px;}
+.pop-name{font-family:var(--head);font-size:14px;font-weight:700;color:var(--tx);margin-bottom:8px;}
+.pop-body{font-size:10.5px;color:var(--tx2);line-height:1.65;margin-bottom:10px;}
+.pop-body strong{color:var(--tx);}
+.pop-tags{display:flex;flex-wrap:wrap;gap:5px;}
+.pop-tag{font-family:var(--mono);font-size:8px;background:var(--sf2);border:1px solid var(--br2);border-radius:3px;padding:2px 7px;color:var(--tx3);}
+
+/* ═══════════════════════════════════
+   ROW 4 — MAIN BODY
+═══════════════════════════════════ */
+.mbody{
+  flex:1;display:grid;grid-template-columns:210px 1fr 208px;
+  overflow:hidden;background:var(--br);gap:1px;min-height:0;
+}
+
+/* ── LEFT ── */
+.lpanel{background:var(--sf);display:flex;flex-direction:column;overflow:hidden;}
+.lptop{flex:1;display:flex;flex-direction:column;overflow:hidden;border-bottom:1px solid var(--br);}
+.lpbot{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.ptitle{
+  flex-shrink:0;padding:8px 12px;border-bottom:1px solid var(--br);
+  font-family:var(--mono);font-size:8px;letter-spacing:.18em;color:var(--tx3);
+  text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;
+}
+.pscroll{flex:1;overflow-y:auto;scrollbar-width:thin;}
+
+.ni{padding:8px 12px;border-bottom:1px solid var(--br);cursor:pointer;transition:background .15s;}
+.ni:hover{background:var(--sf2);}
+.ni-src{font-family:var(--mono);font-size:8px;color:var(--g);display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;}
+.ni-hl{font-size:10px;color:var(--tx);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.ni-t{font-size:8px;color:var(--tx3);margin-top:2px;}
+.sdot-p{color:var(--g);font-size:9px;}.sdot-n{color:var(--re);font-size:9px;}.sdot-u{color:var(--tx3);font-size:9px;}
+
+.smini{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:8px;}
+.sb{background:var(--sf2);border:1px solid var(--br2);border-radius:5px;padding:6px 8px;cursor:pointer;transition:all .2s;text-align:center;}
+.sb:hover{transform:scale(1.04);}
+.sb.up{background:rgba(0,230,118,.06);border-color:rgba(0,230,118,.2);}
+.sb.dn{background:rgba(255,82,82,.06);border-color:rgba(255,82,82,.2);}
+.sbn{font-family:var(--mono);font-size:8px;color:var(--tx3);}
+.sbp{font-family:var(--head);font-size:14px;font-weight:700;margin-top:1px;}
+.sbp.up{color:var(--g);}.sbp.dn{color:var(--re);}.sbp.fl{color:var(--tx3);}
+
+.regime-card{margin:0 8px 6px;padding:7px 10px;border-radius:6px;background:rgba(255,82,82,.06);border:1px solid rgba(255,82,82,.15);text-align:center;}
+.regime-val{font-family:var(--head);font-size:13px;font-weight:800;color:var(--re);}
+.regime-sub{font-size:8.5px;color:var(--tx3);margin-top:1px;}
+.stance-card{margin:0 8px 8px;padding:7px 10px;border-radius:6px;background:var(--gd);border:1px solid rgba(0,230,118,.18);text-align:center;}
+.stance-lbl{font-family:var(--mono);font-size:8px;color:var(--tx3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px;}
+.stance-val{font-family:var(--head);font-size:13px;font-weight:800;color:var(--g);}
+
+/* ── CENTER ── */
+.cpanel{background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;}
+
+.cthread{
+  flex:1;overflow-y:auto;padding:14px 16px;
+  display:flex;flex-direction:column;gap:10px;
+  min-height:0;scrollbar-width:thin;
+}
+.msg{animation:fadeUp .28s ease forwards;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+.msg.user{align-self:flex-end;max-width:76%;}
+.msg.sys{align-self:flex-start;width:100%;max-width:100%;}
+.mlbl{font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--tx3);text-transform:uppercase;margin-bottom:4px;}
+.msg.user .mlbl{text-align:right;color:var(--g);}
+.bubble{background:var(--sf2);border:1px solid var(--br2);border-radius:var(--r2);padding:10px 13px;font-size:11.5px;color:var(--tx);line-height:1.65;}
+.msg.user .bubble{background:var(--gd);border-color:rgba(0,230,118,.18);}
+.bubble a{color:var(--bl);text-decoration:underline;cursor:pointer;}
+
+.acard{background:var(--sf);border:1px solid var(--br2);border-radius:var(--r);margin-top:5px;overflow:hidden;}
+.acard-head{display:flex;align-items:center;gap:7px;padding:7px 11px;border-bottom:1px solid var(--br);}
+.acard-dot{width:6px;height:6px;border-radius:50%;background:var(--g);flex-shrink:0;}
+.acard-name{font-family:var(--mono);font-size:8px;color:var(--tx2);letter-spacing:.08em;flex:1;}
+.acard-t{font-family:var(--mono);font-size:8px;color:var(--g);background:var(--gd);border:1px solid rgba(0,230,118,.15);border-radius:3px;padding:1px 7px;}
+.acard-body{padding:9px 11px;font-size:10.5px;color:var(--tx2);line-height:1.65;}
+.acard-body strong{color:var(--tx);}
+
+.cinput-wrap{flex-shrink:0;background:var(--sf);border-top:1px solid var(--br);padding:10px 14px;}
+.crow{display:flex;gap:8px;align-items:center;}
+.cin{
+  flex:1;background:var(--sf2);border:1px solid var(--br2);border-radius:var(--r);
+  padding:10px 14px;color:var(--tx);font-family:var(--mono);font-size:11px;
+  outline:none;transition:border-color .2s,box-shadow .2s;
+}
+.cin:focus{border-color:var(--g);box-shadow:0 0 0 3px var(--gd);}
+.cin::placeholder{color:var(--tx3);}
+.cin:disabled{opacity:.5;cursor:not-allowed;}
+.sbtn{
+  background:var(--g);color:#000;border:none;border-radius:var(--r);
+  padding:10px 18px;font-family:var(--mono);font-size:11px;font-weight:700;
+  cursor:pointer;letter-spacing:.04em;white-space:nowrap;transition:all .2s;
+}
+.sbtn:hover:not(:disabled){background:#00ff88;box-shadow:0 0 18px var(--gg);}
+.sbtn:disabled{opacity:.5;cursor:not-allowed;}
+.qrow{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;}
+.qp{font-family:var(--mono);font-size:8px;background:var(--sf2);border:1px solid var(--br);border-radius:10px;padding:3px 9px;color:var(--tx3);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.qp:hover{border-color:var(--g);color:var(--g);background:var(--gd);}
+
+/* ── RIGHT ── */
+.rpanel{background:var(--sf);display:flex;flex-direction:column;overflow:hidden;}
+.rblock{flex-shrink:0;border-bottom:1px solid var(--br);}
+.rscroll{flex:1;overflow-y:auto;scrollbar-width:thin;}
+
+.cctx{padding:9px 12px;}
+.ccname{font-family:var(--head);font-size:13px;font-weight:700;color:var(--tx);margin-bottom:2px;}
+.ccsub{font-size:9px;color:var(--tx3);margin-bottom:7px;}
+.cctags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;}
+.ctag{font-size:8px;border-radius:3px;padding:2px 7px;border:1px solid;}
+.ctag.re{background:rgba(255,82,82,.07);border-color:rgba(255,82,82,.2);color:var(--re);}
+.ctag.or{background:rgba(255,145,0,.07);border-color:rgba(255,145,0,.2);color:var(--or);}
+.ctag.gr{background:var(--gd);border-color:rgba(0,230,118,.2);color:var(--g);}
+.ctag.nt{background:var(--sf2);border-color:var(--br2);color:var(--tx3);}
+.elink{font-size:9px;color:var(--g);text-decoration:none;display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
+.elink:hover{text-decoration:underline;}
+
+.noprofile{margin:9px 12px;padding:9px 11px;background:rgba(68,138,255,.06);border:1px solid rgba(68,138,255,.18);border-radius:6px;font-size:9.5px;color:var(--tx2);line-height:1.6;}
+.noprofile strong{color:var(--bl);}
+.noprofile a{color:var(--bl);cursor:pointer;text-decoration:underline;}
+
+.bdown{padding:9px 12px;}
+.bdr{display:flex;align-items:center;gap:7px;margin-bottom:7px;}
+.bdl{font-family:var(--mono);font-size:8px;color:var(--tx3);width:72px;flex-shrink:0;}
+.bdt{flex:1;height:3px;background:var(--sf3);border-radius:2px;overflow:hidden;}
+.bdf{height:100%;border-radius:2px;transition:width 1s ease;}
+.bdv{font-family:var(--mono);font-size:8px;color:var(--tx2);width:24px;text-align:right;}
+
+.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:9px 10px;}
+.sgb{background:var(--sf2);border:1px solid var(--br2);border-radius:5px;padding:7px 9px;cursor:pointer;transition:all .2s;text-align:center;}
+.sgb:hover{transform:scale(1.04);}
+.sgb.up{background:rgba(0,230,118,.06);border-color:rgba(0,230,118,.2);}
+.sgb.dn{background:rgba(255,82,82,.06);border-color:rgba(255,82,82,.2);}
+.sgbn{font-family:var(--mono);font-size:8px;color:var(--tx3);}
+.sgbp{font-family:var(--head);font-size:14px;font-weight:700;margin-top:2px;}
+.sgbp.up{color:var(--g);}.sgbp.dn{color:var(--re);}.sgbp.fl{color:var(--tx3);}
+
+/* pulse mini */
+.pulse-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:9px 10px;}
+.pm{background:var(--sf2);border:1px solid var(--br2);border-radius:5px;padding:7px 9px;text-align:center;}
+.pmk{font-family:var(--mono);font-size:8px;color:var(--tx3);}
+.pmv{font-family:var(--head);font-size:15px;font-weight:700;margin-top:2px;}
+.pmv.up{color:var(--g);}.pmv.dn{color:var(--re);}.pmv.ne{color:var(--tx2);}
+
+/* tabs */
+.tabs{flex-shrink:0;display:flex;border-bottom:1px solid var(--br);background:var(--sf);}
+.tab{
+  flex:1;padding:8px 4px;font-family:var(--mono);font-size:8px;letter-spacing:.06em;
+  color:var(--tx3);cursor:pointer;text-align:center;border-bottom:2px solid transparent;
+  transition:all .2s;text-transform:uppercase;
+}
+.tab.active{color:var(--g);border-bottom-color:var(--g);}
+.tab:hover:not(.active){color:var(--tx2);}
+.tabcontent{display:none;padding:10px 12px;overflow-y:auto;scrollbar-width:thin;flex:1;}
+.tabcontent.active{display:block;}
+
+.risk-card{background:var(--sf2);border:1px solid var(--br2);border-left:3px solid var(--re);border-radius:0 6px 6px 0;padding:9px 11px;margin-bottom:7px;}
+.risk-card.r2{border-left-color:var(--or);}
+.risk-card.r3{border-left-color:var(--ye);}
+.risk-name{font-family:var(--head);font-size:12px;font-weight:700;color:var(--tx);margin-bottom:4px;}
+.risk-detail{font-size:10px;color:var(--tx2);line-height:1.55;margin-bottom:6px;}
+.risk-bar-wrap{display:flex;align-items:center;gap:7px;margin-bottom:5px;}
+.risk-bar{flex:1;height:3px;background:var(--sf3);border-radius:2px;overflow:hidden;}
+.risk-bar-fill{height:100%;border-radius:2px;transition:width 1.2s ease;}
+.risk-prob{font-family:var(--mono);font-size:9px;color:var(--tx3);}
+.risk-tags{display:flex;gap:4px;flex-wrap:wrap;}
+.rtag{font-family:var(--mono);font-size:8px;background:var(--sf);border:1px solid var(--br2);border-radius:3px;padding:2px 6px;color:var(--tx3);}
+
+.action-card{background:var(--sf2);border:1px solid var(--br2);border-left:3px solid var(--g);border-radius:0 6px 6px 0;padding:9px 11px;margin-bottom:7px;cursor:pointer;}
+.ac-title{font-family:var(--head);font-size:12px;font-weight:700;color:var(--tx);margin-bottom:4px;display:flex;align-items:center;gap:6px;}
+.ac-check{width:14px;height:14px;border:1.5px solid var(--g);border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:9px;color:var(--g);}
+.ac-check.done{background:var(--g);color:#000;}
+.action-card.done .ac-title{text-decoration:line-through;opacity:.5;}
+.ac-detail{font-size:10px;color:var(--tx2);line-height:1.55;margin-bottom:6px;}
+.ac-tags{display:flex;gap:4px;flex-wrap:wrap;}
+.actag{font-family:var(--mono);font-size:8px;border-radius:3px;padding:2px 6px;border:1px solid;}
+.actag.ow{background:var(--gd);border-color:rgba(0,230,118,.2);color:var(--g);}
+.actag.dl{background:rgba(255,145,0,.08);border-color:rgba(255,145,0,.2);color:var(--or);}
+.actag.et{background:var(--sf2);border-color:var(--br2);color:var(--tx3);}
+
+.playbook-content{font-family:var(--mono);font-size:10px;line-height:1.85;color:var(--tx2);white-space:pre-wrap;}
+.playbook-content strong{color:var(--tx);}
+.copy-btn{font-family:var(--mono);font-size:8px;background:var(--sf2);border:1px solid var(--br2);border-radius:5px;padding:4px 10px;color:var(--tx3);cursor:pointer;float:right;margin-bottom:8px;transition:all .2s;}
+.copy-btn:hover{border-color:var(--g);color:var(--g);}
+
+.oracle-verdict{
+  text-align:center;padding:14px;border-radius:8px;margin-bottom:12px;
+}
+.ov-label{font-family:var(--mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:6px;}
+.ov-val{font-family:var(--head);font-size:22px;font-weight:800;}
+.oracle-case{border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:10.5px;line-height:1.6;color:var(--tx2);}
+.oracle-case.bull{background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.2);}
+.oracle-case.bear{background:rgba(255,82,82,.06);border:1px solid rgba(255,82,82,.2);}
+.oracle-case.hist{background:var(--sf2);border:1px solid var(--br2);font-style:italic;}
+.oracle-case strong{color:var(--tx);}
+.oracle-empty{text-align:center;padding:20px;color:var(--tx3);font-size:10.5px;line-height:1.7;}
+.oracle-empty .oe-chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:10px;}
+.oracle-empty .oe-chip{font-family:var(--mono);font-size:8px;background:var(--sf2);border:1px solid var(--br2);border-radius:10px;padding:4px 10px;color:var(--tx3);cursor:pointer;transition:all .15s;}
+.oracle-empty .oe-chip:hover{border-color:var(--pu);color:var(--pu);}
+
+.score-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.score-lbl{font-family:var(--mono);font-size:8px;color:var(--tx3);width:76px;flex-shrink:0;}
+.score-track{flex:1;height:4px;background:var(--sf3);border-radius:2px;overflow:hidden;}
+.score-fill{height:100%;border-radius:2px;transition:width 1.2s ease;}
+.score-wt{font-family:var(--mono);font-size:8px;color:var(--tx3);width:28px;text-align:center;}
+.score-num-s{font-family:var(--mono);font-size:9px;color:var(--tx2);width:22px;text-align:right;}
+.score-composite{background:var(--sf2);border:1px solid var(--br2);border-radius:6px;padding:10px;text-align:center;margin-top:10px;}
+.sc-lbl{font-family:var(--mono);font-size:8px;color:var(--tx3);letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px;}
+.sc-val{font-family:var(--head);font-size:28px;font-weight:800;color:var(--or);}
+.sc-tier{font-family:var(--mono);font-size:9px;color:var(--tx3);margin-top:3px;}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+<!-- ═══════════════════════════════════
+     ROW 1 · HEADER
+═══════════════════════════════════ -->
+<header class="hdr">
+  <a class="logo" href="vigil-landing.html">
+    <div class="logo-glyph">⚡</div>
+    <div class="logo-name">VIGIL</div>
+  </a>
+  <div class="vdiv"></div>
+
+  <div class="aflow" id="agentFlow">
+    <div class="afn done" data-i="0"><div class="afd"></div>Orchestrator</div>
+    <div class="afx">›</div>
+    <div class="afn done" data-i="1"><div class="afd"></div>Signal</div>
+    <div class="afx">›</div>
+    <div class="afn done" data-i="2"><div class="afd"></div>Narrative</div>
+    <div class="afx">›</div>
+    <div class="afn done" data-i="3"><div class="afd"></div>Macro</div>
+    <div class="afx">›</div>
+    <div class="afn active" data-i="4"><div class="afd"></div>Competitive</div>
+    <div class="afx">›</div>
+    <div class="afn" data-i="5"><div class="afd"></div>Synthesizer</div>
+    <div class="afx">›</div>
+    <div class="afn" data-i="6"><div class="afd"></div>Oracle</div>
+    <div class="afx">›</div>
+    <div class="afn" data-i="7"><div class="afd"></div>Commander</div>
+  </div>
+
+  <div class="vdiv"></div>
+  <div class="hright">
+    <div class="prof-pill" onclick="location.href='vigil-profile.html'">
+      <div class="pdot"></div>
+      <span>AlfaTrader AI</span>
+      <span style="color:var(--tx3);margin-left:3px;font-size:8.5px;">· Edit</span>
+    </div>
+    <div class="live-badge"><div class="ldot"></div>LIVE</div>
+    <div class="hclock" id="clock">--:--</div>
+    <div class="tbtn" id="tbtn" onclick="toggleTheme()">🌙</div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════
+     ROW 2 · VERDICT BAR
+═══════════════════════════════════ -->
+<div class="vbar">
+  <div class="vscore">
+    <div class="vsnum" id="vscore">72</div>
+    <div class="vstier" id="vtier">ORANGE</div>
+    <div class="vsdir" id="vdir">↑ WORSENING</div>
+  </div>
+  <div class="vdiv"></div>
+  <div class="vtext" id="vtext">
+    AlfaTrader AI faces <em>68% MiCA Art.63 exposure</em> — Series A window open for <em>~45 days</em> before AI multiples reset.
+  </div>
+  <div class="vdiv"></div>
+  <div class="vchips">
+    <div class="vc" onclick="fc('Go deeper on MiCA compliance timeline')">MiCA →</div>
+    <div class="vc" onclick="fc('Show me the full 30-day playbook')">Playbook →</div>
+    <div class="vc" onclick="fc('What if ECB cuts rates next month?')">ECB? →</div>
+    <div class="vc" onclick="fc('Should I buy NASDAQ stocks right now?')">Invest? →</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     ROW 3 · RISK + ACTION STRIP
+═══════════════════════════════════ -->
+<div class="rastrip on" id="rastrip">
+  <div class="sl">RISKS</div>
+  <div class="rchip rc1" onclick="showPopup(event,'risk',0)">
+    <span style="font-size:9px">🔴</span>
+    <span class="chip-txt">MiCA Compliance</span>
+    <span class="chip-meta">88%</span>
+  </div>
+  <div class="rchip rc2" onclick="showPopup(event,'risk',1)">
+    <span style="font-size:9px">🟠</span>
+    <span class="chip-txt">AI Valuation Reset</span>
+    <span class="chip-meta">71%</span>
+  </div>
+  <div class="rchip rc3" onclick="showPopup(event,'risk',2)">
+    <span style="font-size:9px">🟡</span>
+    <span class="chip-txt">EUR/USD Volatility</span>
+    <span class="chip-meta">55%</span>
+  </div>
+  <div class="sdiv"></div>
+  <div class="sl">ACTIONS</div>
+  <div class="achip" onclick="showPopup(event,'action',0)">
+    <span style="font-size:9px">✅</span>
+    <span class="chip-txt">Engage MiCA counsel</span>
+    <span class="chip-meta" style="background:rgba(0,230,118,.15)">by Thu</span>
+  </div>
+  <div class="achip" onclick="showPopup(event,'action',1)">
+    <span style="font-size:9px">✅</span>
+    <span class="chip-txt">Lock investor terms</span>
+    <span class="chip-meta" style="background:rgba(0,230,118,.15)">2 wks</span>
+  </div>
+  <div class="achip" onclick="showPopup(event,'action',2)">
+    <span style="font-size:9px">✅</span>
+    <span class="chip-txt">Hedge EUR/USD</span>
+    <span class="chip-meta" style="background:rgba(0,230,118,.15)">Mar 1</span>
+  </div>
+</div>
+
+<!-- popup -->
+<div class="popup" id="popup">
+  <div class="pop-close" onclick="closePopup()">✕</div>
+  <div class="pop-type" id="popType"></div>
+  <div class="pop-name" id="popName"></div>
+  <div class="pop-body" id="popBody"></div>
+  <div class="pop-tags" id="popTags"></div>
+</div>
+
+<!-- ═══════════════════════════════════
+     ROW 4 · MAIN BODY
+═══════════════════════════════════ -->
+<div class="mbody">
+
+  <!-- ── LEFT PANEL ── -->
+  <div class="lpanel">
+    <div class="lptop">
+      <div class="ptitle">📡 Live Feed <span style="color:var(--g);font-size:7.5px">● live</span></div>
+      <div class="pscroll">
+        <div class="ni"><div class="ni-src">Reuters <span class="sdot-n">●</span></div><div class="ni-hl">Fed signals fewer cuts ahead; AI sector reprices sharply across EU markets</div><div class="ni-t">4 min ago</div></div>
+        <div class="ni"><div class="ni-src">Bloomberg <span class="sdot-n">●</span></div><div class="ni-hl">MiCA enforcement accelerates — AI trading firms face Q2 compliance deadline</div><div class="ni-t">11 min ago</div></div>
+        <div class="ni"><div class="ni-src">FT <span class="sdot-u">●</span></div><div class="ni-hl">Cyprus fintech sandbox expands to AI-native platforms in EU regulatory push</div><div class="ni-t">23 min ago</div></div>
+        <div class="ni"><div class="ni-src">WSJ <span class="sdot-n">●</span></div><div class="ni-hl">Tech selloff deepens as yield curve signals prolonged Fed tightening cycle</div><div class="ni-t">31 min ago</div></div>
+        <div class="ni"><div class="ni-src">CNBC <span class="sdot-p">●</span></div><div class="ni-hl">EU markets rally on surprise ECB dovish pivot signal from Frankfurt</div><div class="ni-t">45 min ago</div></div>
+        <div class="ni"><div class="ni-src">Axios <span class="sdot-u">●</span></div><div class="ni-hl">ESMA updates expected March 3 — AI trading scope formally defined</div><div class="ni-t">2 hr ago</div></div>
+        <div class="ni"><div class="ni-src">CoinDesk <span class="sdot-n">●</span></div><div class="ni-hl">Algo trading volumes spike 34% ahead of Fed minutes release</div><div class="ni-t">2 hr ago</div></div>
+        <div class="ni"><div class="ni-src">S&P Global <span class="sdot-p">●</span></div><div class="ni-hl">Cyprus positions as EU fintech hub with expanded regulatory sandbox</div><div class="ni-t">4 hr ago</div></div>
+      </div>
+    </div>
+    <div class="lpbot">
+      <div class="ptitle">📊 Top Sectors</div>
+      <div class="pscroll">
+        <div class="smini">
+          <div class="sb dn"><div class="sbn">TECH</div><div class="sbp dn">-2.3%</div></div>
+          <div class="sb up"><div class="sbn">HEALTH</div><div class="sbp up">+1.1%</div></div>
+          <div class="sb dn"><div class="sbn">FINANCE</div><div class="sbp dn">-0.8%</div></div>
+          <div class="sb up"><div class="sbn">ENERGY</div><div class="sbp up">+2.8%</div></div>
+        </div>
+        <div class="regime-card">
+          <div class="regime-val">⚠ RISK-OFF</div>
+          <div class="regime-sub">Institutions rotating to safety</div>
+        </div>
+        <div class="stance-card">
+          <div class="stance-lbl">Vigil Stance</div>
+          <div class="stance-val">RAISE NOW ↑</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CENTER: CHAT ── -->
+  <div class="cpanel">
+    <div class="cthread" id="chatThread">
+      <div class="msg sys">
+        <div class="mlbl">⚡ Vigil · Auto-brief · AlfaTrader AI profile loaded</div>
+        <div class="bubble" style="color:var(--tx2);font-size:11px;">
+          Good morning. I've run this morning's analysis for AlfaTrader AI.
+          Your risk score is <strong style="color:var(--or)">72/100 — Orange tier, worsening</strong>.
+          Top risks and actions are pinned above and update with each analysis.
+          Ask anything below or click a shortcut to go deeper.
+        </div>
+      </div>
+      <div class="msg user">
+        <div class="mlbl">You</div>
+        <div class="bubble">What does the competitive landscape look like for an AI trading firm in Europe right now?</div>
+      </div>
+      <div class="msg sys">
+        <div class="mlbl">Competitive Intel Agent · activated</div>
+        <div class="acard">
+          <div class="acard-head"><div class="acard-dot"></div><div class="acard-name">COMPETITIVE INTEL — EU AI Trading Sector</div><div class="acard-t">✓ 3.2s</div></div>
+          <div class="acard-body">Landscape is <strong>consolidating fast</strong>. Three well-funded incumbents are actively acquiring MiCA-compliant firms at distressed prices. ~60% of VC-backed entrants are running under 12 months runway.<br><br><strong>Your window:</strong> Position AlfaTrader as the only Cyprus-native MiCA-pre-approved AI trading platform. Institutional clients need a compliant provider by Q2 — you can capture them before incumbents do. This closes when either an incumbent files for MiCA or your 45-day fundraise window lapses.</div>
+        </div>
+      </div>
+      <div class="msg user">
+        <div class="mlbl">You</div>
+        <div class="bubble">Should I buy NASDAQ stocks right now with some personal capital?</div>
+      </div>
+      <div class="msg sys">
+        <div class="mlbl">Market Oracle · investment query</div>
+        <div class="acard">
+          <div class="acard-head"><div class="acard-dot" style="background:var(--pu)"></div><div class="acard-name">MARKET ORACLE — NASDAQ Investment Query</div><div class="acard-t">✓ 1.8s</div></div>
+          <div class="acard-body"><strong>Verdict: WAIT ⚠️</strong><br><br>VIX at 24.7, institutional rotation out of tech, Fed signaling fewer cuts than priced. Bull case: valuations corrected ~18% from ATH — any dovish surprise flips sentiment fast. Bear case: rates stay elevated, compressing multiples into Q3.<br><br><strong>Vigil's lean:</strong> Horizon 3+ years → phase in 30% now, 70% over 90 days. Under 12 months → wait for VIX below 20 and Fed pivot confirmation, likely 6–10 weeks out.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cinput-wrap">
+      <div class="crow">
+        <input class="cin" id="cin" placeholder="Ask Vigil — AlfaTrader AI context active..." onkeydown="if(event.key==='Enter'&&!event.shiftKey)send()" />
+        <button class="sbtn" id="sbtn" onclick="send()">⚡ ANALYZE</button>
+      </div>
+      <div class="qrow">
+        <div class="qp" onclick="fc('Should we delay our Series A by 60 days?')">Delay Series A?</div>
+        <div class="qp" onclick="fc('What does MiCA mean for us specifically?')">MiCA impact</div>
+        <div class="qp" onclick="fc('What if ECB cuts 50bps next meeting?')">ECB scenario</div>
+        <div class="qp" onclick="fc('Hiring decisions this quarter?')">Hiring stance</div>
+        <div class="qp" onclick="fc('Is gold a good safe haven investment now?')">Buy gold?</div>
+        <div class="qp" onclick="fc('How exposed are we to EUR/USD volatility?')">FX exposure</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="rpanel">
+    <!-- profile -->
+    <div class="rblock">
+      <div class="ptitle">🏢 Profile</div>
+      <div class="cctx">
+        <div class="ccname">AlfaTrader AI</div>
+        <div class="ccsub">Cyprus · AI Trading · Series A · €1–5M ARR · 22 people</div>
+        <div class="cctags">
+          <div class="ctag re">MiCA Exposed</div>
+          <div class="ctag or">Raising</div>
+          <div class="ctag gr">EU Market</div>
+          <div class="ctag nt">12–18mo runway</div>
+        </div>
+        <a class="elink" href="vigil-profile.html">✏ Edit profile →</a>
+      </div>
+    </div>
+
+    <!-- score breakdown -->
+    <div class="rblock">
+      <div class="ptitle">Score Breakdown</div>
+      <div class="bdown">
+        <div class="bdr"><div class="bdl">Macro</div><div class="bdt"><div class="bdf" style="width:78%;background:var(--re)"></div></div><div class="bdv">78</div></div>
+        <div class="bdr"><div class="bdl">Narrative</div><div class="bdt"><div class="bdf" style="width:70%;background:var(--or)"></div></div><div class="bdv">70</div></div>
+        <div class="bdr"><div class="bdl">Market</div><div class="bdt"><div class="bdf" style="width:65%;background:var(--or)"></div></div><div class="bdv">65</div></div>
+        <div class="bdr"><div class="bdl">Competitive</div><div class="bdt"><div class="bdf" style="width:60%;background:var(--ye)"></div></div><div class="bdv">60</div></div>
+      </div>
+    </div>
+
+    <!-- market pulse -->
+    <div class="rblock">
+      <div class="ptitle">Market Pulse</div>
+      <div class="pulse-grid">
+        <div class="pm"><div class="pmk">VIX</div><div class="pmv dn">24.7</div></div>
+        <div class="pm"><div class="pmk">10Y Yield</div><div class="pmv dn">4.61%</div></div>
+        <div class="pm"><div class="pmk">S&P 7D</div><div class="pmv dn">-1.8%</div></div>
+        <div class="pm"><div class="pmk">Gold 7D</div><div class="pmv up">+2.1%</div></div>
+      </div>
+    </div>
+
+    <!-- full sectors -->
+    <div class="rblock">
+      <div class="ptitle">📊 All Sectors (7D)</div>
+      <div class="sgrid">
+        <div class="sgb dn" onclick="fc('Analyze risk for a company in the Technology sector')"><div class="sgbn">TECH</div><div class="sgbp dn">-2.3%</div></div>
+        <div class="sgb up" onclick="fc('Analyze risk for a company in the Healthcare sector')"><div class="sgbn">HEALTH</div><div class="sgbp up">+1.1%</div></div>
+        <div class="sgb dn" onclick="fc('Analyze risk for a company in the Financial sector')"><div class="sgbn">FINANCE</div><div class="sgbp dn">-0.8%</div></div>
+        <div class="sgb" style="background:var(--sf2)" onclick="fc('Analyze risk for a company in the Consumer sector')"><div class="sgbn">CONSUMER</div><div class="sgbp fl">-0.2%</div></div>
+        <div class="sgb up" onclick="fc('Analyze risk for a company in the Energy sector')"><div class="sgbn">ENERGY</div><div class="sgbp up">+2.8%</div></div>
+        <div class="sgb dn" onclick="fc('Analyze risk for a company in the Real Estate sector')"><div class="sgbn">REAL EST</div><div class="sgbp dn">-1.4%</div></div>
+        <div class="sgb" style="background:var(--sf2);grid-column:1/-1" onclick="fc('Analyze risk for a company in the Industrials sector')"><div class="sgbn">INDUSTRIALS</div><div class="sgbp fl">+0.3%</div></div>
+      </div>
+    </div>
+
+    <!-- tabs for full analysis -->
+    <div class="tabs" id="tabsRow">
+      <div class="tab active" onclick="switchTab('risks',this)">🔴 Risks</div>
+      <div class="tab" onclick="switchTab('actions',this)">✅ Actions</div>
+      <div class="tab" onclick="switchTab('playbook',this)">📋 Play</div>
+      <div class="tab" onclick="switchTab('oracle',this)">🔮 Oracle</div>
+      <div class="tab" onclick="switchTab('scores',this)">📊 Scores</div>
+    </div>
+
+    <div class="tabcontent active" id="tab-risks">
+      <div class="risk-card">
+        <div class="risk-name">MiCA Compliance Squeeze</div>
+        <div class="risk-detail">EU AI trading platforms face MiCA Art.63 compliance requirements effective Q2 2026. Filing now takes 90 days — €40–80K sprint needed this week.</div>
+        <div class="risk-bar-wrap"><div class="risk-bar"><div class="risk-bar-fill" style="width:88%;background:var(--re)"></div></div><div class="risk-prob">88%</div></div>
+        <div class="risk-tags"><div class="rtag">45 days</div><div class="rtag">CEO + CLO</div><div class="rtag">HIGH severity</div></div>
+      </div>
+      <div class="risk-card r2">
+        <div class="risk-name">AI Valuation Compression</div>
+        <div class="risk-detail">Institutional rotation out of AI stocks compressing multiples. Expect 25–40% discount vs 2024 benchmarks if you wait beyond 45 days on your Series A.</div>
+        <div class="risk-bar-wrap"><div class="risk-bar"><div class="risk-bar-fill" style="width:71%;background:var(--or)"></div></div><div class="risk-prob">71%</div></div>
+        <div class="risk-tags"><div class="rtag">30–60 days</div><div class="rtag">Fundraise impact</div></div>
+      </div>
+      <div class="risk-card r3">
+        <div class="risk-name">EUR/USD FX Volatility</div>
+        <div class="risk-detail">ECB dovish pivot diverging from Fed tightening creates EUR/USD volatility. USD-revenue / EUR-ops mix risks 8–12% margin compression this quarter.</div>
+        <div class="risk-bar-wrap"><div class="risk-bar"><div class="risk-bar-fill" style="width:55%;background:var(--ye)"></div></div><div class="risk-prob">55%</div></div>
+        <div class="risk-tags"><div class="rtag">This quarter</div><div class="rtag">Hedge available</div></div>
+      </div>
+    </div>
+
+    <div class="tabcontent" id="tab-actions">
+      <div class="action-card" id="ac0" onclick="toggleAction(this)">
+        <div class="ac-title"><div class="ac-check" id="ck0">✓</div>Engage MiCA Compliance Counsel</div>
+        <div class="ac-detail">Pre-filing for AI Trading Operator category under MiCA Art.63 has 90-day processing. Starting after March means operating in grey zone during Q3 enforcement.</div>
+        <div class="ac-tags"><div class="actag ow">CEO + CLO</div><div class="actag dl">by Thu Feb 27</div><div class="actag et">~4 hrs</div></div>
+      </div>
+      <div class="action-card" id="ac1" onclick="toggleAction(this)">
+        <div class="ac-title"><div class="ac-check" id="ck1"></div>Lock Investor Terms Before Reset</div>
+        <div class="ac-detail">Institutional AI allocation is rotating. Current traction metrics support premium multiple now. In 45 days, comparables will have repriced downward.</div>
+        <div class="ac-tags"><div class="actag ow">CEO + CFO</div><div class="actag dl">2 weeks</div><div class="actag et">~45 day window</div></div>
+      </div>
+      <div class="action-card" id="ac2" onclick="toggleAction(this)">
+        <div class="ac-title"><div class="ac-check" id="ck2"></div>Hedge EUR/USD on Q1 Revenue</div>
+        <div class="ac-detail">If USD-denominated revenue: convert and lock 60–70% of Q1 proceeds to EUR now at current rate. FX volatility window opens post-March ECB meeting.</div>
+        <div class="ac-tags"><div class="actag ow">CFO</div><div class="actag dl">by Mar 1</div><div class="actag et">Minimal cost</div></div>
+      </div>
+    </div>
+
+    <div class="tabcontent" id="tab-playbook">
+      <button class="copy-btn" onclick="copyPlaybook()">📋 Copy</button>
+      <div class="playbook-content" id="playbookContent"><strong>VIGIL 30-DAY PLAYBOOK — AlfaTrader AI</strong>
+<strong>Generated:</strong> Feb 26, 2026 | Score: 72/100 Orange Tier
+
+<strong>WEEK 1 — COMPLIANCE SPRINT</strong>
+□ Day 1–2: CEO + CLO engage MiCA specialist counsel (target: 3 firms)
+□ Day 3: Evaluate Cyprus CySEC pre-filing pathway vs Malta MFSA
+□ Day 4–5: Internal compliance audit — map all Art.63 touchpoints
+□ Day 7: Submit pre-filing application. Budget: €40–80K.
+
+<strong>WEEK 2 — FUNDRAISE ACTIVATION</strong>
+□ Refresh deck with MiCA pre-filing status as key differentiator
+□ Priority outreach to 8 EU-focused VCs (compliance = moat)
+□ Schedule 5 term sheet conversations by Day 14
+□ Lock soft-circle commitments before AI multiples reset
+
+<strong>WEEK 3 — COMPETITIVE POSITIONING</strong>
+□ Publish MiCA compliance roadmap (signals ahead of competitors)
+□ Approach 3 institutional clients needing compliant AI trading
+□ Pre-empt competitor acquisitions with partnership discussions
+
+<strong>WEEK 4 — STABILIZE + DEFEND</strong>
+□ Hedge 60% of USD-denominated Q1 revenue to EUR
+□ Full team risk briefing — align on 90-day strategy
+□ Board update with Vigil risk score + competitive analysis
+
+<strong>FINANCIAL STANCE: RAISE NOW</strong>
+Window: ~45 days | Priority: Compliance > Fundraise > Expansion</div>
+    </div>
+
+    <div class="tabcontent" id="tab-oracle">
+      <div class="oracle-verdict" style="background:rgba(255,215,64,.07);border:1px solid rgba(255,215,64,.2)">
+        <div class="ov-label" style="color:var(--ye)">Market Oracle Verdict</div>
+        <div class="ov-val" style="color:var(--ye)">WAIT ⚠️</div>
+      </div>
+      <div class="oracle-case bull"><strong style="color:var(--g)">🐂 Bull Case:</strong> Valuations corrected ~18% from ATH. Any Fed dovish surprise or ECB pivot flips institutional sentiment fast. NASDAQ historically recovers 28% in 12 months after corrections of this magnitude.</div>
+      <div class="oracle-case bear"><strong style="color:var(--re)">🐻 Bear Case:</strong> Rates staying elevated longer compresses multiples into Q3. Institutional rotation out of tech is accelerating. VIX at 24.7 signals continued risk-off mode.</div>
+      <div class="oracle-case hist"><strong>Historical Parallel:</strong> Q4 2018 tech correction — VIX spiked to 28, NASDAQ fell 23% before recovering fully in 6 months following Fed pivot signal.</div>
+      <div class="oracle-case" style="background:var(--sf2);border:1px solid var(--br2);font-style:normal">
+        <strong>Vigil's Take:</strong> If 3+ year horizon → deploy 30% now, 70% over 90 days. If under 12 months → wait for VIX below 20 and confirmed Fed pivot signal, likely 6–10 weeks out.
+        <div style="margin-top:6px;font-size:9px;color:var(--tx3);font-style:italic">⚠ Not financial advice. This is informational analysis only.</div>
+      </div>
+    </div>
+
+    <div class="tabcontent" id="tab-scores">
+      <div class="score-row"><div class="score-lbl">Macro</div><div class="score-track"><div class="score-fill" style="width:78%;background:var(--re)"></div></div><div class="score-wt">35%</div><div class="score-num-s">78</div></div>
+      <div class="score-row"><div class="score-lbl">Market</div><div class="score-track"><div class="score-fill" style="width:65%;background:var(--or)"></div></div><div class="score-wt">25%</div><div class="score-num-s">65</div></div>
+      <div class="score-row"><div class="score-lbl">Narrative</div><div class="score-track"><div class="score-fill" style="width:70%;background:var(--or)"></div></div><div class="score-wt">20%</div><div class="score-num-s">70</div></div>
+      <div class="score-row"><div class="score-lbl">Competitive</div><div class="score-track"><div class="score-fill" style="width:60%;background:var(--ye)"></div></div><div class="score-wt">20%</div><div class="score-num-s">60</div></div>
+      <div class="score-composite">
+        <div class="sc-lbl">Composite Score</div>
+        <div class="sc-val" id="compScore">72</div>
+        <div class="sc-tier" id="compTier">ORANGE TIER · WORSENING</div>
+      </div>
+      <div style="margin-top:8px;text-align:center;">
+        <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,215,64,.08);border:1px solid rgba(255,215,64,.2);border-radius:5px;padding:5px 12px;">
+          <span style="font-size:9px;">🟡</span>
+          <span style="font-family:var(--mono);font-size:8px;color:var(--ye);letter-spacing:.08em;">MIXED SIGNALS — MACRO DOMINANT</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /rpanel -->
+
+</div><!-- /mbody -->
+</div><!-- /app -->
+
+<script>
+/* ── POPUP DATA ── */
+const PD = {
+  risk:[
+    {t:'RISK DETAIL',n:'MiCA Compliance Squeeze',b:'EU AI trading platforms face MiCA Article 63 compliance requirements effective Q2 2026. Filing now takes 90 days to process — a <strong>€40–80K compliance sprint</strong> is needed immediately.',tags:['Probability: 88%','Severity: HIGH','Horizon: 45 days','Owner: CEO + CLO']},
+    {t:'RISK DETAIL',n:'AI Valuation Compression',b:'Institutional rotation out of AI stocks is compressing multiples. For your next funding round, expect a <strong>25–40% discount</strong> vs 2024 benchmarks if you wait beyond 45 days.',tags:['Probability: 71%','Severity: HIGH','Horizon: 30–60 days','Impact: Fundraise pricing']},
+    {t:'RISK DETAIL',n:'EUR/USD FX Volatility',b:'ECB dovish pivot diverging from Fed tightening creates EUR/USD volatility. If revenue is USD-denominated but ops are EUR-based, <strong>8–12% margin compression</strong> is likely this quarter.',tags:['Probability: 55%','Severity: MEDIUM','Horizon: This quarter','Hedge: Available']}
+  ],
+  action:[
+    {t:'ACTION ITEM',n:'Engage MiCA Compliance Counsel',b:'Pre-filing for AI Trading Operator category under MiCA Article 63 has a 90-day processing window. Starting after March means operating in a <strong>grey zone during Q3</strong> when enforcement begins. Act this week.',tags:['Owner: CEO + CLO','Deadline: Thu Feb 27','Est. time: 4 hrs','Priority: URGENT']},
+    {t:'ACTION ITEM',n:'Lock Investor Terms Before Reset',b:'Institutional AI allocation is rotating. Your current traction metrics support a premium multiple <strong>now</strong>. In 45 days, comparables will have repriced downward. Move on term sheets immediately.',tags:['Owner: CEO + CFO','Deadline: 2 weeks','Priority: HIGH','Window: ~45 days']},
+    {t:'ACTION ITEM',n:'Hedge EUR/USD on Q1 Revenue',b:'If revenue is USD-denominated: convert and lock <strong>60–70% of Q1 proceeds</strong> to EUR now. FX volatility window opens post-March ECB meeting — hedging before then is optimal.',tags:['Owner: CFO','Deadline: Mar 1','Est. cost: Minimal','Risk if skipped: Medium']}
+  ]
+};
+
+function showPopup(e,type,idx){
+  e.stopPropagation();
+  const d=PD[type][idx];
+  const p=document.getElementById('popup');
+  document.getElementById('popType').textContent=d.t;
+  document.getElementById('popName').textContent=d.n;
+  document.getElementById('popBody').innerHTML=d.b;
+  document.getElementById('popTags').innerHTML=d.tags.map(t=>`<div class="pop-tag">${t}</div>`).join('');
+  const x=Math.min(e.clientX,window.innerWidth-310);
+  const y=Math.min(e.clientY+12,window.innerHeight-280);
+  p.style.left=x+'px'; p.style.top=y+'px';
+  p.classList.add('open');
+}
+function closePopup(){document.getElementById('popup').classList.remove('open');}
+document.addEventListener('click',e=>{
+  const p=document.getElementById('popup');
+  if(!p.contains(e.target)) p.classList.remove('open');
+});
+
+/* ── TABS ── */
+function switchTab(id,el){
+  document.querySelectorAll('.tabcontent').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+/* ── ACTION CHECKBOXES ── */
+function toggleAction(card){
+  card.classList.toggle('done');
+  const ck=card.querySelector('.ac-check');
+  ck.classList.toggle('done');
+  ck.textContent=ck.classList.contains('done')?'✓':'';
+}
+
+/* ── PLAYBOOK COPY ── */
+function copyPlaybook(){
+  const txt=document.getElementById('playbookContent').innerText;
+  navigator.clipboard.writeText(txt).then(()=>{
+    const btn=document.querySelector('.copy-btn');
+    btn.textContent='✓ Copied!';
+    setTimeout(()=>btn.textContent='📋 Copy',2000);
+  });
+}
+
+/* ── THEME ── */
+let dark=true;
+function toggleTheme(){
+  dark=!dark;
+  const app=document.getElementById('app'),btn=document.getElementById('tbtn');
+  dark?(app.removeAttribute('data-theme'),btn.textContent='🌙'):(app.setAttribute('data-theme','light'),btn.textContent='☀️');
+  sessionStorage.setItem('vt',dark?'dark':'light');
+}
+(()=>{if(sessionStorage.getItem('vt')==='light'){dark=false;document.getElementById('app').setAttribute('data-theme','light');document.getElementById('tbtn').textContent='☀️';}})();
+
+/* ── CLOCK ── */
+function tick(){const d=new Date();const t=d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/New_York'});document.getElementById('clock').textContent=t+' EST';}
+setInterval(tick,1000);tick();
+
+/* ── CHAT ── */
+function fc(t){const i=document.getElementById('cin');i.value=t;i.focus();}
+
+function send(){
+  const inp=document.getElementById('cin');
+  const val=inp.value.trim();
+  if(!val)return;
+  const thread=document.getElementById('chatThread');
+  const btn=document.getElementById('sbtn');
+
+  const um=document.createElement('div');
+  um.className='msg user';
+  um.innerHTML=`<div class="mlbl">You</div><div class="bubble">${val.replace(/</g,'&lt;')}</div>`;
+  thread.appendChild(um);
+  thread.scrollTop=thread.scrollHeight;
+
+  inp.value=''; inp.disabled=true; btn.disabled=true; btn.textContent='Routing...';
+
+  const sm=document.createElement('div');
+  sm.className='msg sys';
+  sm.innerHTML=`<div class="mlbl">⚡ Vigil · routing to agents...</div><div class="bubble" style="color:var(--tx3);font-style:italic" id="tind">Analysing<span id="td"></span></div>`;
+  thread.appendChild(sm);
+  thread.scrollTop=thread.scrollHeight;
+
+  fireAgents();
+
+  let d=0,msgs=['Routing...','Analysing...','Synthesizing...'];
+  const di=setInterval(()=>{const el=document.getElementById('td');if(el)el.textContent=['.','..','...'][d++%3];},400);
+  let mi=0; const bi=setInterval(()=>{btn.textContent=msgs[mi++%3];},900);
+
+  setTimeout(()=>{
+    clearInterval(di); clearInterval(bi);
+    sm.innerHTML=`<div class="mlbl">⚡ Vigil · analysis complete · all 8 agents</div><div class="bubble">Analysis complete. Based on AlfaTrader AI's profile and current live market data, the 8-agent pipeline has processed your query. Your risk score and pinned items above remain current. Check the <strong>tabs on the right</strong> for full risks, actions, and playbook. Ask a follow-up or use the shortcuts for deeper intelligence.</div>`;
+    thread.scrollTop=thread.scrollHeight;
+    inp.disabled=false; btn.disabled=false; btn.textContent='⚡ ANALYZE';
+  },3200);
+}
+
+/* ── AGENT ANIMATION ── */
+function fireAgents(){
+  const nodes=document.querySelectorAll('.afn');
+  nodes.forEach(n=>{n.className='afn';});
+  nodes.forEach((n,i)=>{
+    setTimeout(()=>n.className='afn active',i*300);
+    setTimeout(()=>n.className='afn done',i*300+620);
+  });
+}
+setTimeout(()=>{
+  const ns=document.querySelectorAll('.afn');
+  ns.forEach((n,i)=>{n.className=i<4?'afn done':i===4?'afn active':'afn';});
+},600);
+</script>
+</body>
+</html>

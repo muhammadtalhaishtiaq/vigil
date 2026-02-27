@@ -1,0 +1,29 @@
+# Vigil — Python dependencies
+# Pin minor versions for reproducibility on Streamlit Cloud free tier
+
+# ── Frontend ──────────────────────────────────────────────────────────────
+streamlit>=1.35.0,<2.0.0
+streamlit-autorefresh>=1.0.1,<2.0.0
+streamlit-js-eval>=0.1.7
+
+# ── Charts ────────────────────────────────────────────────────────────────
+plotly>=5.20.0,<6.0.0
+
+# ── Market data (no API key) ──────────────────────────────────────────────
+yfinance>=0.2.40,<0.3.0
+
+# ── Live news ─────────────────────────────────────────────────────────────
+requests>=2.31.0,<3.0.0
+
+# ── AI / LLM agents ───────────────────────────────────────────────────────
+langchain>=0.2.0,<0.4.0
+langchain-openai>=0.1.0,<0.3.0
+langgraph>=0.1.0,<0.3.0
+openai>=1.30.0,<2.0.0
+
+# ── Environment config ────────────────────────────────────────────────────
+python-dotenv>=1.0.0,<2.0.0
+
+# ── Data utilities ────────────────────────────────────────────────────────
+pandas>=2.1.0,<3.0.0
+numpy>=1.26.0,<2.0.0
