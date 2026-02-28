@@ -20,12 +20,6 @@ from session_manager import (
     has_sufficient_profile,
 )
 
-st.set_page_config(
-    page_title="Vigil — Company Profile",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
 # ─── Hide ALL Streamlit chrome ────────────────────────────────────────────────
 st.markdown(
@@ -939,20 +933,12 @@ function saveProfile() {{
 
   // Redirect after short delay to let Streamlit pick up sessionStorage
   setTimeout(function() {{
-    try {{
-      window.parent.location.href = '/';
-    }} catch(e) {{
-      window.location.href = '/';
-    }}
+    window.parent.location.href = '/dashboard';
   }}, 600);
 }}
 
 function skipProfile() {{
-  try {{
-    window.parent.location.href = '/';
-  }} catch(e) {{
-    window.location.href = '/';
-  }}
+  window.parent.location.href = '/dashboard';
 }}
 
 // Theme toggle
@@ -1052,14 +1038,11 @@ updatePreview();
                             js_expressions="sessionStorage.removeItem('vigil_profile')",
                             key="clear_profile",
                         )
-                        st.switch_page("app.py")
+                        st.switch_page("pages/dashboard.py")
             except Exception:
                 pass
     except ImportError:
         pass
 
-
-if __name__ == "__main__":
-    main()
 
 main()
