@@ -20,6 +20,12 @@ from session_manager import (
     has_sufficient_profile,
 )
 
+st.set_page_config(
+    page_title="Vigil — Company Profile",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 # ─── Hide ALL Streamlit chrome ────────────────────────────────────────────────
 st.markdown(
@@ -212,7 +218,75 @@ a{{color:inherit;text-decoration:none;}}
   font-family:var(--head);font-size:30px;font-weight:800;
   color:var(--tx);line-height:1.2;margin-bottom:8px;
 }}
-.page-sub{{font-size:12px;color:var(--tx2);line-height:1.6;margin-bottom:24px;}}
+.page-sub{{font-size:12px;color:var(--tx2);line-height:1.6;margin-bottom:16px;}}
+
+/* ── Sample Company Button ── */
+.sample-btn{{
+  display:inline-flex;align-items:center;gap:6px;
+  background:linear-gradient(135deg,rgba(0,230,118,0.12),rgba(0,230,118,0.06));
+  border:1px solid var(--g);border-radius:8px;
+  color:var(--g);font-size:11px;font-weight:600;letter-spacing:.4px;
+  padding:8px 16px;cursor:pointer;margin-bottom:20px;
+  transition:all .2s ease;
+}}
+.sample-btn:hover{{background:rgba(0,230,118,0.2);box-shadow:0 0 12px rgba(0,230,118,0.2);}}
+
+/* ── Sample Modal ── */
+.sample-modal-overlay{{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+  z-index:9999;align-items:center;justify-content:center;
+}}
+.sample-modal-overlay.open{{display:flex;}}
+.sample-modal{{
+  background:#0f1117;border:1px solid rgba(0,230,118,.3);border-radius:14px;
+  width:min(540px,95vw);max-height:90vh;overflow-y:auto;
+  box-shadow:0 0 40px rgba(0,230,118,.15);
+  animation:modalIn .25s ease;
+}}
+@keyframes modalIn{{from{{opacity:0;transform:scale(.95)}}to{{opacity:1;transform:scale(1)}}}}
+.sample-modal-header{{
+  display:flex;align-items:center;gap:14px;
+  padding:20px 24px 16px;border-bottom:1px solid rgba(255,255,255,.06);
+}}
+.sample-modal-icon{{font-size:28px;}}
+.sample-modal-title{{font-size:15px;font-weight:700;color:#fff;}}
+.sample-modal-sub{{font-size:11px;color:var(--tx2);margin-top:2px;}}
+.sample-modal-close{{
+  margin-left:auto;background:none;border:none;
+  color:var(--tx2);font-size:16px;cursor:pointer;padding:4px 8px;
+}}
+.sample-modal-close:hover{{color:#fff;}}
+.sample-modal-body{{padding:20px 24px;}}
+.sample-company-card{{
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;padding:16px;margin-bottom:16px;
+}}
+.sample-company-name{{font-size:17px;font-weight:700;color:#fff;margin-bottom:4px;}}
+.sample-company-tag{{font-size:10px;color:var(--g);letter-spacing:.5px;margin-bottom:10px;}}
+.sample-company-desc{{font-size:11.5px;color:var(--tx2);line-height:1.7;margin-bottom:14px;}}
+.sample-chips-row{{display:flex;flex-wrap:wrap;gap:6px;}}
+.sample-chip{{
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:3px 10px;font-size:10px;color:var(--tx2);
+}}
+.sample-chip.risk-chip{{border-color:rgba(255,171,0,.3);color:#ffc107;}}
+.sample-hint{{font-size:11px;color:var(--tx2);line-height:1.6;}}
+.sample-modal-footer{{
+  display:flex;gap:10px;justify-content:flex-end;
+  padding:16px 24px;border-top:1px solid rgba(255,255,255,.06);
+}}
+.sample-cancel-btn{{
+  background:none;border:1px solid rgba(255,255,255,.15);
+  border-radius:7px;color:var(--tx2);font-size:11px;
+  padding:8px 16px;cursor:pointer;
+}}
+.sample-cancel-btn:hover{{border-color:rgba(255,255,255,.3);color:#fff;}}
+.sample-load-btn{{
+  background:linear-gradient(135deg,#00e676,#00c853);
+  border:none;border-radius:7px;color:#070809;
+  font-size:11px;font-weight:700;padding:8px 20px;cursor:pointer;
+}}
+.sample-load-btn:hover{{opacity:.9;box-shadow:0 0 14px rgba(0,230,118,.4);}}
 
 /* ── Before/After card ── */
 .ba-card{{
@@ -435,6 +509,49 @@ input[type=range]::-moz-range-thumb{{
     <h1 class="page-title">Tell Vigil about your business.</h1>
     <p class="page-sub">No account needed. Data lives in your browser session only.<br>
     More detail = more specific risk intelligence from all 8 agents.</p>
+
+    <!-- Sample Company CTA -->
+    <button class="sample-btn" onclick="openSampleModal()">🏢 Try a Sample Company →</button>
+
+    <!-- ── Sample Company Modal ── -->
+    <div id="sampleModal" class="sample-modal-overlay" onclick="closeSampleModal(event)">
+      <div class="sample-modal" onclick="event.stopPropagation()">
+        <div class="sample-modal-header">
+          <div class="sample-modal-icon">🏢</div>
+          <div>
+            <div class="sample-modal-title">Sample Company Profile</div>
+            <div class="sample-modal-sub">Pre-filled data to demo agent orchestration</div>
+          </div>
+          <button class="sample-modal-close" onclick="closeSampleModal()">✕</button>
+        </div>
+        <div class="sample-modal-body">
+          <div class="sample-company-card">
+            <div class="sample-company-name">⚡ Stackly AI</div>
+            <div class="sample-company-tag">Series A · SaaS / DevOps · $3.2M ARR</div>
+            <div class="sample-company-desc">
+              Stackly AI provides an AI-powered CI/CD automation platform for mid-market engineering teams.
+              Headquartered in Berlin, operating across the EU and expanding to the US market.
+              Currently evaluating a $12M Series B raise while navigating GDPR compliance and rising cloud infrastructure costs.
+            </div>
+            <div class="sample-chips-row">
+              <span class="sample-chip">🌍 Germany → EU + US</span>
+              <span class="sample-chip">👥 48 employees</span>
+              <span class="sample-chip">⏱ 18 months runway</span>
+              <span class="sample-chip risk-chip">⚠ FX Risk</span>
+              <span class="sample-chip risk-chip">⚠ Regulatory (GDPR)</span>
+              <span class="sample-chip risk-chip">⚠ Competition (GitHub Copilot)</span>
+            </div>
+          </div>
+          <p class="sample-hint">
+            Loading this profile will auto-trigger all 8 Vigil agents to generate a full risk intelligence briefing — so you can see agent orchestration in action.
+          </p>
+        </div>
+        <div class="sample-modal-footer">
+          <button class="sample-cancel-btn" onclick="closeSampleModal()">Cancel</button>
+          <button class="sample-load-btn" onclick="loadSampleCompany()">Load Sample &amp; Start Analysis →</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Before / After card -->
     <div class="ba-card">
@@ -933,12 +1050,20 @@ function saveProfile() {{
 
   // Redirect after short delay to let Streamlit pick up sessionStorage
   setTimeout(function() {{
-    window.parent.location.href = '/dashboard';
+    try {{
+      window.parent.location.href = '/';
+    }} catch(e) {{
+      window.location.href = '/';
+    }}
   }}, 600);
 }}
 
 function skipProfile() {{
-  window.parent.location.href = '/dashboard';
+  try {{
+    window.parent.location.href = '/';
+  }} catch(e) {{
+    window.location.href = '/';
+  }}
 }}
 
 // Theme toggle
@@ -965,6 +1090,95 @@ function toggleTheme() {{
     document.getElementById('tbtn').textContent = '☀️';
   }}
 }})();
+
+// Initial preview render
+updatePreview();
+
+// ── Sample Company Modal ──────────────────────────────────────────────────────
+var SAMPLE_COMPANY = {{
+  company_name: 'Stackly AI',
+  website: 'https://stackly.ai',
+  description: 'AI-powered CI/CD automation platform for mid-market engineering teams. We help DevOps and platform engineers reduce deployment failures by 60% through intelligent pipeline monitoring and auto-remediation. Customers include 120+ scale-up SaaS companies across DACH and Benelux.',
+  sector: 'SaaS',
+  sub_sector: 'DevOps / Platform Engineering',
+  primary_market: 'EU',
+  country: 'Germany',
+  operating_countries: 'Germany, Netherlands, Belgium, Austria, expanding to USA',
+  arr: '$1M–$5M',
+  stage: 'Series A',
+  runway: '18-24 months',
+  team_size: '26-50',
+  currency: 'EUR',
+  risk_tolerance: '3',
+  current_decisions: 'Preparing $12M Series B raise, evaluating US market entry (NYC office), considering AWS vs GCP for multi-cloud strategy, deciding whether to hire US VP of Sales.',
+  comp_threat: 'GitHub Copilot expanding into CI/CD, Harness.io raising $150M, GitLab CI native improvements reducing paid tooling budgets.',
+  constraint: 'Hiring senior engineers in Berlin is slow and expensive — losing 2 offers/month to US companies paying in USD.',
+  risk_areas: ['FX & Currency', 'Regulatory / GDPR', 'Competition', 'Hiring / Talent'],
+  regulations: ['GDPR', 'ISO 27001']
+}};
+
+function openSampleModal() {{
+  document.getElementById('sampleModal').classList.add('open');
+}}
+
+function closeSampleModal(e) {{
+  if (!e || e.target === document.getElementById('sampleModal')) {{
+    document.getElementById('sampleModal').classList.remove('open');
+  }}
+}}
+
+function loadSampleCompany() {{
+  var p = SAMPLE_COMPANY;
+  function sv(id, v) {{
+    var el = document.getElementById(id);
+    if (el && v !== undefined && v !== null) el.value = v;
+  }}
+  sv('company_name', p.company_name);
+  sv('website', p.website);
+  sv('description', p.description);
+  sv('sector', p.sector);
+  sv('sub_sector', p.sub_sector);
+  sv('primary_market', p.primary_market);
+  sv('country', p.country);
+  sv('operating_countries', p.operating_countries);
+  sv('arr', p.arr);
+  sv('stage', p.stage);
+  sv('runway', p.runway);
+  sv('team_size', p.team_size);
+  sv('currency', p.currency);
+  sv('risk_tolerance', p.risk_tolerance);
+  sv('current_decisions', p.current_decisions);
+  sv('comp_threat', p.comp_threat);
+  sv('constraint', p.constraint);
+
+  // Select risk chips
+  document.querySelectorAll('#riskChips .chip-opt').forEach(function(c) {{
+    c.classList.toggle('sel', p.risk_areas.indexOf(c.textContent.trim()) >= 0);
+  }});
+  // Select regulation chips
+  document.querySelectorAll('#regChips .chip-opt').forEach(function(c) {{
+    c.classList.toggle('sel', p.regulations.indexOf(c.textContent.trim()) >= 0);
+  }});
+
+  updatePreview();
+  closeSampleModal();
+
+  // Scroll to form top
+  window.scrollTo({{top: 0, behavior: 'smooth'}});
+
+  // Flash confirmation
+  var btn = document.querySelector('.sample-btn');
+  if (btn) {{
+    btn.textContent = '✓ Sample loaded — review & save below';
+    btn.style.borderColor = '#fff';
+    btn.style.color = '#fff';
+    setTimeout(function() {{
+      btn.textContent = '🏢 Try a Sample Company →';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }}, 3000);
+  }}
+}}
 
 // Initial preview render
 updatePreview();
@@ -1038,11 +1252,14 @@ updatePreview();
                             js_expressions="sessionStorage.removeItem('vigil_profile')",
                             key="clear_profile",
                         )
-                        st.switch_page("pages/dashboard.py")
+                        st.switch_page("app.py")
             except Exception:
                 pass
     except ImportError:
         pass
 
+
+if __name__ == "__main__":
+    main()
 
 main()
