@@ -1,0 +1,150 @@
+{
+  "timestamp": "2026-02-27T20:28:21.183Z",
+  "baseUrl": "https://nm285lam.run.complete.dev",
+  "summary": {
+    "total": 26,
+    "passed": 21,
+    "failed": 5
+  },
+  "tests": [
+    {
+      "status": "PASS",
+      "test": "Dashboard HTTP 200",
+      "detail": "status=200"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Header visible (.hdr)",
+      "detail": "element .hdr found"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard VIGIL logo visible",
+      "detail": "logo-name text: \"VIGIL\", .logo: true"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Agent flow nodes visible (8 agents)",
+      "detail": "agents: Orchestrator, Signal, Narrative, Macro, Competitive, Synthesizer, Oracle, Commander"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Verdict bar visible (.vbar)",
+      "detail": "content: \"--\n    \n    \n  \n  \n  Ask Vigil anything to get your risk score.\n  \n  Market check →Stock analysis →M\""
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Three-column layout visible (.mbody)",
+      "detail": "3 columns in .mbody"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Left panel has news items (.lpanel)",
+      "detail": "LIVE FEED: true, news items: 0"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Center panel chat/analysis visible",
+      "detail": "class: .cthread"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Right panel visible",
+      "detail": "class: hright"
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard LIVE badge visible (.live-badge)",
+      "detail": "text: \"LIVE\""
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Clock visible (.hclock)",
+      "detail": "text: \"--:-- EST\""
+    },
+    {
+      "status": "PASS",
+      "test": "Dashboard Intelligence bar (.ibar) in DOM",
+      "detail": "id: ibar, class: ibar"
+    },
+    {
+      "status": "PASS",
+      "test": "Profile HTTP 200",
+      "detail": "status=200"
+    },
+    {
+      "status": "FAIL",
+      "test": "Profile Form fields visible",
+      "detail": "Streamlit error: StreamlitDuplicateElementKey in profile.py - page shows error instead of form"
+    },
+    {
+      "status": "FAIL",
+      "test": "Profile Completeness bar visible",
+      "detail": "Page not rendered due to Streamlit error"
+    },
+    {
+      "status": "FAIL",
+      "test": "Profile Save button visible",
+      "detail": "Page not rendered due to Streamlit error"
+    },
+    {
+      "status": "FAIL",
+      "test": "Profile Back button visible",
+      "detail": "Page not rendered due to Streamlit error"
+    },
+    {
+      "status": "FAIL",
+      "test": "Profile Preview card visible",
+      "detail": "Page not rendered due to Streamlit error"
+    },
+    {
+      "status": "PASS",
+      "test": "Landing HTTP 200",
+      "detail": "status=200"
+    },
+    {
+      "status": "PASS",
+      "test": "Landing Hero section visible",
+      "detail": "hero:true, headings:Your business faces risksyour team can't see yet. | One platform.Two powerful audiences., textLen:500"
+    },
+    {
+      "status": "PASS",
+      "test": "Landing VIGIL branding visible",
+      "detail": "title:\"Vigil — Autonomous Financial Risk Intelligence\", textIncludes:true"
+    },
+    {
+      "status": "PASS",
+      "test": "Navigation: Dashboard accessible",
+      "detail": "HTTP 200"
+    },
+    {
+      "status": "PASS",
+      "test": "Navigation: Profile accessible",
+      "detail": "HTTP 200"
+    },
+    {
+      "status": "PASS",
+      "test": "Navigation: Landing accessible",
+      "detail": "HTTP 200"
+    },
+    {
+      "status": "PASS",
+      "test": "Navigation: Return to Dashboard",
+      "detail": "HTTP 200"
+    },
+    {
+      "status": "PASS",
+      "test": "Navigation: No page errors during navigation",
+      "detail": ""
+    }
+  ],
+  "screenshots": [
+    "01_dashboard_initial.png",
+    "02_dashboard_full.png",
+    "03_profile_initial.png",
+    "04_profile_full.png",
+    "05_landing_initial.png",
+    "06_landing_full.png",
+    "07_navigation_final_dashboard.png"
+  ]
+}
