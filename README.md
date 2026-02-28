@@ -179,25 +179,6 @@ vigil/
 
 ---
 
-## Dashboard UI
-
-The Vigil dashboard has four persistent zones:
-
-**Header (48px, sticky top):** ⚡ VIGIL logo → 8 agent nodes (animate during pipeline: idle → queued → running → complete) → company profile pill → LIVE badge → EST clock.
-
-**Verdict Bar (42px, sticky below header):** Composite risk score (0–100) → tier badge (color-coded) → one-line verdict sentence → 4 quick-prompt chips.
-
-**Risk/Action Strip (sticky, shown after first analysis):** Top 3 risks as colored chips (red/orange/yellow with probability %) → divider → Top 3 actions (green chips with deadlines).
-
-**3-Column Body:**
-- *Left (1.1fr):* Live news feed (8 headlines, sentiment dots, timestamps) + sector grid (top/bottom 2) + market regime badge
-- *Center (3.6fr):* Chat thread (user + Vigil messages with agent attribution) + 6 quick-prompt chips + Enter-to-submit form
-- *Right (1.1fr):* Company profile card + score breakdown bars + sector heatmap (click-to-query) + sector news
-
-**Full Analysis Tabs (expandable below body):** 🔴 Risks | ✅ Actions | 📋 Playbook | 🔮 Oracle | 📊 Scores
-
----
-
 ## Running the Health Check
 
 Before deploying, verify all external API connections:
