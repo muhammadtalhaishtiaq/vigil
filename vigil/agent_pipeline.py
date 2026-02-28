@@ -1,0 +1,858 @@
+"""
+agent_pipeline.py — Vigil Intelligence Engine
+===============================================
+Orchestrates all 8 Vigil agents through intent-based routing.
+No Streamlit dependency — pure Python, session_id based.
+
+Flow:
+  user_message + session_id
+    → STEP 1: assemble full context (profile + history + live data)
+    → STEP 2: Orchestrator (intent classification + initial synthesis)
+    → STEP 3: specialist agents dispatched per intent routing table
+    → STEP 4: structured result dict assembled
+    → STEP 5: persisted to session memory + session_manager
+"""
+
+import os
+import re
+import json
+import time
+import logging
+from pathlib import Path
+from datetime import datetime, timezone
+from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from openai import OpenAI
+from dotenv import load_dotenv
+
+import session_manager
+from data_layer import get_all_live_data
+
+load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [agent_pipeline] %(levelname)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# AIML Client (OpenAI-compatible, lazy singleton)
+# ---------------------------------------------------------------------------
+_client: Optional[OpenAI] = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        api_key = os.getenv("AIML_API_KEY", "")
+        if not api_key:
+            logger.warning("AIML_API_KEY not set — agent calls will fail")
+        _client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.aimlapi.com/v1",
+        )
+    return _client
+
+
+# ---------------------------------------------------------------------------
+# Agent model routing table
+# ---------------------------------------------------------------------------
+_MODEL_MAP: dict[str, str] = {
+    "orchestrator":       "claude-sonnet-4-6",
+    "signal_harvester":   "claude-haiku-4-5-20251001",
+    "narrative_intel":    "claude-sonnet-4-6",
+    "macro_watchdog":     "claude-sonnet-4-6",
+    "competitive_intel":  "claude-sonnet-4-6",
+    "risk_synthesizer":   "claude-sonnet-4-6",
+    "strategy_commander": "claude-sonnet-4-6",
+    "market_oracle":      "claude-haiku-4-5-20251001",
+}
+
+_ALL_AGENTS: list[str] = list(_MODEL_MAP.keys())
+
+_STRIP_UPDATE_INTENTS: frozenset[str] = frozenset({
+    "FULL_BRIEFING",
+    "MACRO_FOCUS",
+    "COMPETITIVE_FOCUS",
+    "DECISION_SUPPORT",
+    "SCENARIO",
+})
+
+# ---------------------------------------------------------------------------
+# System prompt loader
+# ---------------------------------------------------------------------------
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_prompt_cache: dict[str, str] = {}
+
+
+def _load_prompt(agent_name: str) -> str:
+    if agent_name in _prompt_cache:
+        return _prompt_cache[agent_name]
+    prompt_file = _PROMPTS_DIR / f"{agent_name}.txt"
+    try:
+        content = prompt_file.read_text(encoding="utf-8").strip()
+        _prompt_cache[agent_name] = content
+        return content
+    except FileNotFoundError:
+        logger.warning("Prompt file not found: %s", prompt_file)
+        _prompt_cache[agent_name] = ""
+        return ""
+    except Exception as exc:
+        logger.error("Failed to load prompt for %s: %s", agent_name, exc)
+        _prompt_cache[agent_name] = ""
+        return ""
+
+
+def invalidate_prompt_cache() -> None:
+    _prompt_cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# FUNCTION: run_agent
+# ---------------------------------------------------------------------------
+
+def run_agent(
+    agent_name: str,
+    system_prompt: str,
+    user_content: str,
+    max_tokens: int = 2000,
+    session_id: str = "",
+) -> str:
+    """Execute a single agent call via the AIML API."""
+    if session_id:
+        session_manager.update_agent_status(session_id, agent_name, "running")
+    start_ts = time.perf_counter()
+
+    try:
+        client = _get_client()
+        model = _MODEL_MAP.get(agent_name, "claude-sonnet-4-6")
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_content})
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.35,
+        )
+
+        elapsed = time.perf_counter() - start_ts
+        if session_id:
+            session_manager.update_agent_status(session_id, agent_name, "complete", elapsed)
+
+        content = (response.choices[0].message.content or "").strip()
+        logger.info("✓ %s completed in %.2fs | model: %s | output: %d chars",
+                    agent_name, elapsed, model, len(content))
+        return content
+
+    except Exception as exc:
+        elapsed = time.perf_counter() - start_ts
+        if session_id:
+            session_manager.update_agent_status(session_id, agent_name, "error", elapsed)
+        logger.error("✗ %s failed after %.2fs: %s", agent_name, elapsed, str(exc)[:120])
+        return (
+            f"[{agent_name.upper().replace('_', ' ')} UNAVAILABLE — "
+            f"analysis for this section could not be completed. Error: {str(exc)[:80]}]"
+        )
+
+
+# ---------------------------------------------------------------------------
+# FUNCTION: parse_orchestrator_response
+# ---------------------------------------------------------------------------
+
+def parse_orchestrator_response(response: str) -> dict:
+    """Extract structured fields from a Vigil-formatted markdown response."""
+    result: dict = {
+        "intent_type": None,
+        "agents_to_activate": [],
+        "risk_score": None,
+        "risk_tier": None,
+        "verdict": None,
+        "top_risks": [],
+        "top_actions": [],
+        "executive_brief": None,
+        "full_playbook": None,
+        "market_pulse_summary": None,
+        "score_breakdown": {},
+        "oracle_verdict": None,
+    }
+
+    if not response or not response.strip():
+        return result
+
+    # ── INTENT TYPE ──────────────────────────────────────────────────────────
+    try:
+        intent_match = re.search(r"INTENT[_\s]TYPE[:\s]+([A-Z_]{4,30})", response)
+        if not intent_match:
+            intent_match = re.search(r"\bINTENT[:\s]+([A-Z_]{4,30})", response)
+        if intent_match:
+            result["intent_type"] = intent_match.group(1).strip()
+    except Exception:
+        pass
+
+    # ── AGENTS ACTIVATED ─────────────────────────────────────────────────────
+    try:
+        agents_match = re.search(
+            r"AGENTS[_\s]NEEDED[:\s]+([^\n]+)|[Aa]gents?\s+activated[:\s*]+([^\n\*]+)", response
+        )
+        if agents_match:
+            raw = agents_match.group(1) or agents_match.group(2) or ""
+            raw = re.sub(r"[\[\]\*\|]", "", raw)
+            result["agents_to_activate"] = [a.strip() for a in re.split(r"[,;]", raw) if a.strip()]
+    except Exception:
+        pass
+
+    # ── INFER INTENT FROM AGENTS LIST (fallback) ─────────────────────────────
+    if not result["intent_type"] and result["agents_to_activate"]:
+        try:
+            agents_lower = " ".join(result["agents_to_activate"]).lower()
+            if "market_oracle" in agents_lower or "market oracle" in agents_lower:
+                result["intent_type"] = "INVESTMENT_QUERY"
+            elif len(result["agents_to_activate"]) >= 6:
+                result["intent_type"] = "FULL_BRIEFING"
+            elif "macro" in agents_lower:
+                result["intent_type"] = "MACRO_FOCUS"
+            elif "competitive" in agents_lower:
+                result["intent_type"] = "COMPETITIVE_FOCUS"
+            elif "narrative" in agents_lower:
+                result["intent_type"] = "MARKET_PULSE"
+        except Exception:
+            pass
+
+    # ── RISK SCORE ────────────────────────────────────────────────────────────
+    try:
+        score_match = re.search(r"RISK[_\s]SCORE[:\s]+(\d{1,3})", response, re.IGNORECASE)
+        if not score_match:
+            score_match = re.search(
+                r"(?:COMPOSITE\s+)?RISK\s+SCORE[:\s\*]*(\d{1,3})\s*/\s*100", response, re.IGNORECASE
+            )
+        if score_match:
+            result["risk_score"] = max(0, min(100, int(score_match.group(1))))
+    except Exception:
+        pass
+
+    # ── RISK TIER ─────────────────────────────────────────────────────────────
+    try:
+        tier_match = re.search(r"RISK[_\s]TIER[:\s]+(GREEN|YELLOW|ORANGE|RED|DARK_RED)", response, re.IGNORECASE)
+        if not tier_match:
+            tier_match = re.search(
+                r"TIER[:\s\|\*]+([A-Z]+(?:\s+[A-Z]+)?(?:\s*[🟢✅⚠️🟠🔴⬛])?)", response, re.IGNORECASE
+            )
+        if tier_match:
+            result["risk_tier"] = tier_match.group(1).strip()
+    except Exception:
+        pass
+
+    # ── VERDICT ───────────────────────────────────────────────────────────────
+    try:
+        verdict_match = re.search(r"^VERDICT[:\s]+(.+)$", response, re.MULTILINE | re.IGNORECASE)
+        if not verdict_match:
+            verdict_match = re.search(
+                r"THE\s+VERDICT\s*\n+>\s*[\"']?(.+?)[\"']?\s*(?:\n\n|\*\*RISK|\*\*TIME|---|\Z)",
+                response, re.DOTALL | re.IGNORECASE,
+            )
+        if verdict_match:
+            result["verdict"] = verdict_match.group(1).strip()
+        else:
+            fallback_match = re.search(r'>\s*["\']?([^"\'\n]{20,200})["\']?', response)
+            if fallback_match:
+                result["verdict"] = fallback_match.group(1).strip()
+    except Exception:
+        pass
+
+    # ── EXECUTIVE BRIEF ───────────────────────────────────────────────────────
+    try:
+        brief_match = re.search(
+            r"EXECUTIVE[_\s]BRIEF[:\s]+(.+?)(?:\n\n|\Z)", response, re.IGNORECASE | re.DOTALL
+        )
+        if not brief_match:
+            brief_match = re.search(
+                r"EXECUTIVE\s+BRIEF\s*\n+([\s\S]+?)(?:\n---|\n###|\n\*\*\*|\Z)", response, re.IGNORECASE
+            )
+        if brief_match:
+            result["executive_brief"] = brief_match.group(1).strip()
+    except Exception:
+        pass
+
+    # ── SCORE BREAKDOWN ───────────────────────────────────────────────────────
+    try:
+        breakdown_match = re.search(
+            r"SCORE[_\s]BREAKDOWN[:\s]*\n([\s\S]+?)(?:\n\n|\nSIGNAL|\Z)", response, re.IGNORECASE
+        )
+        if breakdown_match:
+            bd_text = breakdown_match.group(1)
+            bd = {}
+            for field, key in [("MACRO", "macro"), ("MARKET", "market"),
+                                ("NARRATIVE", "narrative"), ("COMPETITIVE", "competitive")]:
+                m = re.search(rf"{field}[:\s]+(\d{{1,3}})", bd_text, re.IGNORECASE)
+                if m:
+                    bd[key] = max(0, min(100, int(m.group(1))))
+            if bd:
+                result["score_breakdown"] = bd
+    except Exception:
+        pass
+
+    # ── ORACLE VERDICT ────────────────────────────────────────────────────────
+    try:
+        oracle_match = re.search(r"ORACLE[_\s]VERDICT[:\s]+(BUY|WAIT|CAUTION|AVOID)", response, re.IGNORECASE)
+        if oracle_match:
+            result["oracle_verdict"] = oracle_match.group(1).upper()
+    except Exception:
+        pass
+
+    # ── TOP 3 RISKS (new format) ──────────────────────────────────────────────
+    try:
+        top_risks_new = re.findall(
+            r"NAME:\s*(.+?)\s*\|\s*PROBABILITY:\s*(\d+)\s*\|\s*SEVERITY:\s*([A-Z]+)\s*\n"
+            r"\s*DETAIL:\s*(.+?)(?:\n\s*ACTION_IF_IGNORED:\s*(.+?))?(?:\n\s*TIMELINE:\s*(.+?))?(?:\n\s*OWNER:\s*(.+?))?(?=\n\d+\.|$)",
+            response, re.DOTALL,
+        )
+        if top_risks_new:
+            for m in top_risks_new[:3]:
+                result["top_risks"].append({
+                    "name": m[0].strip(),
+                    "probability": int(m[1]) if m[1] else 50,
+                    "severity": m[2].strip() if m[2] else "MEDIUM",
+                    "detail": m[3].strip()[:300] if m[3] else "",
+                    "action_if_ignored": m[4].strip() if m[4] else "",
+                    "timeline": m[5].strip() if m[5] else "",
+                    "owner": m[6].strip() if m[6] else "Leadership",
+                })
+    except Exception:
+        pass
+
+    # ── TOP 3 RISKS (old format fallback) ────────────────────────────────────
+    if not result["top_risks"]:
+        try:
+            risks_section = re.search(
+                r"TOP[_\s]RISKS?[:\s]*\n+([\s\S]+?)(?:\nTOP[_\s]ACTIONS|\nSCORE[_\s]BREAKDOWN|\n###|\n---|\n✅|\n🟢|\Z)",
+                response, re.IGNORECASE,
+            )
+            if risks_section:
+                risks_text = risks_section.group(1)
+                risk_items = re.findall(
+                    r"\d+\.\s+\*\*(.+?)\*\*\s*[—\-–]+\s*(.+?)\s*[—\-–]+\s*Probability:\s*([\d]+%?)",
+                    risks_text,
+                )
+                if not risk_items:
+                    risk_items_simple = re.findall(
+                        r"\d+\.\s+\*\*(.+?)\*\*[^\n]*\n.*?([^\n]{10,120})", risks_text
+                    )
+                    for name, detail in risk_items_simple[:3]:
+                        result["top_risks"].append({
+                            "name": name.strip(), "probability": 50,
+                            "detail": detail.strip(), "action_if_ignored": "",
+                        })
+                else:
+                    for name, detail, prob in risk_items[:3]:
+                        result["top_risks"].append({
+                            "name": name.strip(),
+                            "probability": int(re.sub(r"[^0-9]", "", prob)) if prob else 50,
+                            "detail": detail.strip(), "action_if_ignored": "",
+                        })
+        except Exception:
+            pass
+
+    # ── TOP 3 ACTIONS (new format) ────────────────────────────────────────────
+    try:
+        top_actions_new = re.findall(
+            r"TITLE:\s*(.+?)\s*\n\s*DETAIL:\s*(.+?)\s*\n\s*DEADLINE:\s*(.+?)\s*\n\s*OWNER:\s*(.+?)\s*\n\s*EST_TIME:\s*(.+?)\s*\n\s*URGENCY:\s*([A-Z]+)",
+            response, re.DOTALL,
+        )
+        if top_actions_new:
+            for m in top_actions_new[:3]:
+                result["top_actions"].append({
+                    "title": m[0].strip()[:60], "detail": m[1].strip()[:300],
+                    "deadline": m[2].strip(), "owner": m[3].strip(),
+                    "est_time": m[4].strip(), "urgency": m[5].strip(),
+                })
+    except Exception:
+        pass
+
+    # ── TOP 3 ACTIONS (old format fallback) ──────────────────────────────────
+    if not result["top_actions"]:
+        try:
+            actions_section = re.search(
+                r"(?:YOUR\s+NEXT\s+3\s+MOVES|NEXT\s+3\s+MOVES|TOP[_\s]3\s+ACTIONS?|IMMEDIATE\s+ACTIONS?)\s*\n+([\s\S]+?)(?:\n###|\n---|\n📅|\n📊|\n💰|\nFINANCIAL_STANCE|\Z)",
+                response, re.IGNORECASE,
+            )
+            if actions_section:
+                actions_text = actions_section.group(1)
+                action_items = re.findall(
+                    r"\d+\.\s+\*\*(.+?)\*\*\s*→\s*Owner:\s*([^|\n]+?)\s*\|\s*Deadline:\s*([^\n|]+)",
+                    actions_text,
+                )
+                if not action_items:
+                    action_items_simple = re.findall(
+                        r"\d+\.\s+\*\*(.+?)\*\*[^\n]*\n?\s*→?\s*([^\n]{10,120})", actions_text
+                    )
+                    for title, detail in action_items_simple[:3]:
+                        result["top_actions"].append({
+                            "title": title.strip(), "owner": "Leadership",
+                            "deadline": "This week", "urgency": "HIGH", "detail": detail.strip(),
+                        })
+                else:
+                    for title, owner, deadline in action_items[:3]:
+                        result["top_actions"].append({
+                            "title": title.strip(), "owner": owner.strip(),
+                            "deadline": deadline.strip(), "urgency": "HIGH", "detail": "",
+                        })
+        except Exception:
+            pass
+
+    # ── MARKET PULSE SUMMARY ──────────────────────────────────────────────────
+    try:
+        pulse_match = re.search(
+            r"MARKET\s+PULSE\s*\n+([\s\S]+?)(?:\n---|\n###|\n💬|\n\*\Z|\Z)", response, re.IGNORECASE
+        )
+        if pulse_match:
+            result["market_pulse_summary"] = pulse_match.group(1).strip()
+    except Exception:
+        pass
+
+    if not result["intent_type"]:
+        result["intent_type"] = "FULL_BRIEFING"
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Private pipeline helpers
+# ---------------------------------------------------------------------------
+
+def _set_agents_queued(session_id: str, agents: list[str]) -> None:
+    for agent in agents:
+        session_manager.update_agent_status(session_id, agent, "queued")
+
+
+def _set_agents_idle(session_id: str, agents: list[str]) -> None:
+    for agent in agents:
+        session_manager.update_agent_status(session_id, agent, "idle")
+
+
+def _reset_pipeline_statuses(session_id: str) -> None:
+    for agent in _ALL_AGENTS:
+        session_manager.update_agent_status(session_id, agent, "idle")
+
+
+def _build_business_context(session_id: str, profile: Optional[dict], user_message: str) -> str:
+    if profile and session_manager.has_sufficient_profile(session_id):
+        return session_manager.get_profile_context_string(session_id)
+    return f"USER QUERY (infer business context from this message):\n{user_message}"
+
+
+def _build_signal_input(business_context: str, live_data_text: str) -> str:
+    return json.dumps({
+        "business_context": business_context,
+        "live_market_data": live_data_text,
+        "instruction": (
+            "Generate a comprehensive Signal Harvest Report based on "
+            "the business context and live market data above."
+        ),
+    }, indent=2)
+
+
+def _build_synthesis_input(
+    business_context: str,
+    signal_output: str,
+    narrative_output: str = "",
+    macro_output: str = "",
+    competitive_output: str = "",
+) -> str:
+    parts = [
+        f"BUSINESS CONTEXT:\n{business_context}",
+        f"SIGNAL HARVESTER OUTPUT:\n{signal_output}",
+    ]
+    if narrative_output:
+        parts.append(f"NARRATIVE INTEL OUTPUT:\n{narrative_output}")
+    if macro_output:
+        parts.append(f"MACRO WATCHDOG OUTPUT:\n{macro_output}")
+    if competitive_output:
+        parts.append(f"COMPETITIVE INTEL OUTPUT:\n{competitive_output}")
+    return "\n\n".join(parts)
+
+
+def _format_live_data_as_text(live_data: dict) -> str:
+    lines = ["[LIVE MARKET DATA — VIGIL DATA LAYER]"]
+
+    pulse = live_data.get("pulse", {})
+    vix_d = pulse.get("vix", {})
+    spx_d = pulse.get("spx", {})
+    tnx_d = pulse.get("treasury_10y", {})
+    fg_d = pulse.get("fear_greed", {})
+
+    lines.append(
+        f"VIX: {vix_d.get('value', 'N/A')} ({vix_d.get('level', 'N/A')}) | "
+        f"S&P500 7d: {spx_d.get('pct_7d', 'N/A')}% ({spx_d.get('trend', 'N/A')}) | "
+        f"10Y Yield: {tnx_d.get('yield_pct', 'N/A')}% ({tnx_d.get('yield_curve', 'N/A')}) | "
+        f"Regime: {pulse.get('market_regime', 'N/A')} | "
+        f"Fear/Greed: {fg_d.get('score', 'N/A')}/100 ({fg_d.get('label', 'N/A')})"
+    )
+
+    sectors = live_data.get("sectors", {})
+    if sectors:
+        sector_parts = []
+        for name, data in sectors.items():
+            pct = data.get("pct_7d")
+            pct_str = f"{pct:+.1f}%" if pct is not None else "N/A"
+            sector_parts.append(f"{name}: {pct_str}")
+        lines.append("SECTORS (7d): " + " | ".join(sector_parts))
+
+    headlines = live_data.get("headlines", [])
+    if headlines:
+        lines.append("TOP HEADLINES:")
+        for i, h in enumerate(headlines[:5], 1):
+            sentiment = h.get("sentiment", "neutral").upper()
+            title = h.get("title", "")
+            source = h.get("source", "")
+            lines.append(f"  {i}. [{sentiment}] {title} — {source}")
+
+    lines.append(
+        f"Data quality: {live_data.get('data_quality', 'UNKNOWN')} | "
+        f"Fetched: {live_data.get('fetched_at', 'N/A')}"
+    )
+    lines.append("[END LIVE DATA]")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MAIN FUNCTION: run_pipeline
+# ---------------------------------------------------------------------------
+
+def run_pipeline(session_id: str, user_message: str) -> dict:
+    """
+    Execute the full Vigil intelligence pipeline for a user message.
+
+    Args:
+        session_id:   Session identifier for state management.
+        user_message: Raw natural language input from the user.
+
+    Returns:
+        Structured result dict with all pipeline outputs and metadata.
+    """
+    pipeline_start = time.perf_counter()
+    _reset_pipeline_statuses(session_id)
+
+    # ── STEP 1: PREPARE ──────────────────────────────────────────────────────
+    full_context = session_manager.get_full_context_for_agent(session_id)
+    enhanced_message = session_manager.enhance_query_with_context(session_id, user_message)
+    profile = session_manager.load_profile(session_id)
+    profile_was_used = session_manager.has_sufficient_profile(session_id)
+
+    live_data: dict = {}
+    live_data_text = ""
+    try:
+        live_data = get_all_live_data()
+        live_data_text = _format_live_data_as_text(live_data)
+    except Exception as exc:
+        logger.error("Live data fetch failed: %s — pipeline continues without it", exc)
+
+    orchestrator_input = "\n\n".join(
+        part for part in [
+            full_context,
+            f"USER REQUEST:\n{enhanced_message}",
+            live_data_text,
+        ] if part.strip()
+    )
+
+    if not profile_was_used:
+        orchestrator_input += (
+            "\n\n[MODE: GENERIC — No company profile is loaded. "
+            "Provide general market intelligence, macro analysis, and investment insights. "
+            "Do not assume any specific business context.]"
+        )
+
+    _inv_kw = re.compile(
+        r"\b(buy|sell|invest(ing|ment)?|ticker|stock|etf|crypto|bitcoin|ethereum|"
+        r"nasdaq|s&p|gold|oil|should i|worth it|opportunity|trade|portfolio|"
+        r"price target|outlook for|aapl|tsla|nvda|msft|amzn|goog|apple|nvidia|"
+        r"amazon|google|short|long|rally|dip|bullish|bearish)\b",
+        re.IGNORECASE,
+    )
+    if _inv_kw.search(user_message):
+        orchestrator_input += (
+            "\n\n[ROUTING HINT: The user message contains investment/market query keywords. "
+            "Strongly consider routing this as INVESTMENT_QUERY to activate the Market Oracle.]"
+        )
+
+    # ── STEP 2: ORCHESTRATOR ─────────────────────────────────────────────────
+    session_manager.update_agent_status(session_id, "orchestrator", "queued")
+    orchestrator_prompt = _load_prompt("orchestrator")
+    orchestrator_response = run_agent(
+        "orchestrator", orchestrator_prompt, orchestrator_input,
+        max_tokens=1500, session_id=session_id,
+    )
+
+    parsed_orch = parse_orchestrator_response(orchestrator_response)
+    intent_type: str = parsed_orch.get("intent_type") or "FULL_BRIEFING"
+    logger.info("Pipeline routing → intent: %s", intent_type)
+
+    # ── STEP 3: ROUTE TO SPECIALISTS ─────────────────────────────────────────
+    specialist_outputs: dict[str, str] = {}
+    agents_activated: list[str] = ["orchestrator"]
+    business_context = _build_business_context(session_id, profile, user_message)
+
+    # ── INTENT: INVESTMENT_QUERY (2 agents) ──────────────────────────────────
+    if intent_type == "INVESTMENT_QUERY":
+        _set_agents_queued(session_id, ["signal_harvester", "market_oracle"])
+        _set_agents_idle(session_id, ["narrative_intel", "macro_watchdog", "competitive_intel",
+                                      "risk_synthesizer", "strategy_commander"])
+
+        signal_out = run_agent("signal_harvester", _load_prompt("signal_harvester"),
+                               _build_signal_input(business_context, live_data_text),
+                               max_tokens=2000, session_id=session_id)
+        specialist_outputs["signal_harvester"] = signal_out
+        agents_activated.append("signal_harvester")
+
+        oracle_out = run_agent("market_oracle", _load_prompt("market_oracle"),
+                               json.dumps({"user_question": user_message,
+                                           "signal_harvester_data": signal_out[:2500]}, indent=2),
+                               max_tokens=2500, session_id=session_id)
+        specialist_outputs["market_oracle"] = oracle_out
+        agents_activated.append("market_oracle")
+
+    # ── INTENT: MACRO_FOCUS | DECISION_SUPPORT | SCENARIO (4 agents) ─────────
+    elif intent_type in ("MACRO_FOCUS", "DECISION_SUPPORT", "SCENARIO"):
+        _set_agents_queued(session_id, ["signal_harvester", "macro_watchdog",
+                                        "risk_synthesizer", "strategy_commander"])
+        _set_agents_idle(session_id, ["narrative_intel", "competitive_intel", "market_oracle"])
+
+        signal_out = run_agent("signal_harvester", _load_prompt("signal_harvester"),
+                               _build_signal_input(business_context, live_data_text),
+                               max_tokens=2000, session_id=session_id)
+        specialist_outputs["signal_harvester"] = signal_out
+        agents_activated.append("signal_harvester")
+
+        macro_input = f"{business_context}\n\nSIGNAL HARVESTER OUTPUT:\n{signal_out}"
+        if intent_type == "SCENARIO":
+            macro_input += f"\n\n[SCENARIO BEING ANALYZED]: {user_message}"
+
+        macro_out = run_agent("macro_watchdog", _load_prompt("macro_watchdog"),
+                              macro_input, max_tokens=2500, session_id=session_id)
+        specialist_outputs["macro_watchdog"] = macro_out
+        agents_activated.append("macro_watchdog")
+
+        synth_out = run_agent("risk_synthesizer", _load_prompt("risk_synthesizer"),
+                              _build_synthesis_input(business_context, signal_out, macro_output=macro_out),
+                              max_tokens=2500, session_id=session_id)
+        specialist_outputs["risk_synthesizer"] = synth_out
+        agents_activated.append("risk_synthesizer")
+
+        strat_input = f"{business_context}\n\nRISK SYNTHESIZER OUTPUT:\n{synth_out}"
+        if intent_type == "DECISION_SUPPORT":
+            strat_input += f"\n\n[SPECIFIC DECISION TO SUPPORT]: {user_message}"
+
+        strat_out = run_agent("strategy_commander", _load_prompt("strategy_commander"),
+                              strat_input, max_tokens=2000, session_id=session_id)
+        specialist_outputs["strategy_commander"] = strat_out
+        agents_activated.append("strategy_commander")
+
+    # ── INTENT: COMPETITIVE_FOCUS (4 agents) ─────────────────────────────────
+    elif intent_type == "COMPETITIVE_FOCUS":
+        _set_agents_queued(session_id, ["signal_harvester", "competitive_intel",
+                                        "risk_synthesizer", "strategy_commander"])
+        _set_agents_idle(session_id, ["narrative_intel", "macro_watchdog", "market_oracle"])
+
+        signal_out = run_agent("signal_harvester", _load_prompt("signal_harvester"),
+                               _build_signal_input(business_context, live_data_text),
+                               max_tokens=2000, session_id=session_id)
+        specialist_outputs["signal_harvester"] = signal_out
+        agents_activated.append("signal_harvester")
+
+        comp_out = run_agent("competitive_intel", _load_prompt("competitive_intel"),
+                             f"{business_context}\n\nSIGNAL HARVESTER OUTPUT:\n{signal_out}",
+                             max_tokens=2500, session_id=session_id)
+        specialist_outputs["competitive_intel"] = comp_out
+        agents_activated.append("competitive_intel")
+
+        synth_out = run_agent("risk_synthesizer", _load_prompt("risk_synthesizer"),
+                              _build_synthesis_input(business_context, signal_out, competitive_output=comp_out),
+                              max_tokens=2500, session_id=session_id)
+        specialist_outputs["risk_synthesizer"] = synth_out
+        agents_activated.append("risk_synthesizer")
+
+        strat_out = run_agent("strategy_commander", _load_prompt("strategy_commander"),
+                              f"{business_context}\n\nRISK SYNTHESIZER OUTPUT:\n{synth_out}",
+                              max_tokens=2000, session_id=session_id)
+        specialist_outputs["strategy_commander"] = strat_out
+        agents_activated.append("strategy_commander")
+
+    # ── INTENT: MARKET_PULSE (3 agents) ──────────────────────────────────────
+    elif intent_type == "MARKET_PULSE":
+        _set_agents_queued(session_id, ["signal_harvester", "narrative_intel", "risk_synthesizer"])
+        _set_agents_idle(session_id, ["macro_watchdog", "competitive_intel",
+                                      "strategy_commander", "market_oracle"])
+
+        signal_out = run_agent("signal_harvester", _load_prompt("signal_harvester"),
+                               _build_signal_input(business_context, live_data_text),
+                               max_tokens=2000, session_id=session_id)
+        specialist_outputs["signal_harvester"] = signal_out
+        agents_activated.append("signal_harvester")
+
+        narrative_out = run_agent("narrative_intel", _load_prompt("narrative_intel"),
+                                  f"{business_context}\n\nSIGNAL HARVESTER OUTPUT:\n{signal_out}",
+                                  max_tokens=2000, session_id=session_id)
+        specialist_outputs["narrative_intel"] = narrative_out
+        agents_activated.append("narrative_intel")
+
+        brief_prompt = _load_prompt("risk_synthesizer")
+        if brief_prompt:
+            brief_prompt += (
+                "\n\n[MODE: BRIEF — Produce only: verdict, composite score, "
+                "top 2 risks, market regime summary. Max 400 words.]"
+            )
+        synth_out = run_agent("risk_synthesizer", brief_prompt,
+                              _build_synthesis_input(business_context, signal_out, narrative_output=narrative_out),
+                              max_tokens=1200, session_id=session_id)
+        specialist_outputs["risk_synthesizer"] = synth_out
+        agents_activated.append("risk_synthesizer")
+
+    # ── INTENT: FULL_BRIEFING (all 7 specialists — default) ──────────────────
+    else:
+        _set_agents_queued(session_id, [
+            "signal_harvester", "narrative_intel", "macro_watchdog",
+            "competitive_intel", "risk_synthesizer", "strategy_commander",
+        ])
+        _set_agents_idle(session_id, ["market_oracle"])
+
+        signal_out = run_agent("signal_harvester", _load_prompt("signal_harvester"),
+                               _build_signal_input(business_context, live_data_text),
+                               max_tokens=2500, session_id=session_id)
+        specialist_outputs["signal_harvester"] = signal_out
+        agents_activated.append("signal_harvester")
+
+        # Wave 2 — Narrative + Macro + Competitive (PARALLEL)
+        wave2_tasks = {
+            "narrative_intel": (_load_prompt("narrative_intel"),
+                                f"{business_context}\n\nSIGNAL HARVESTER OUTPUT:\n{signal_out}", 2000),
+            "macro_watchdog":  (_load_prompt("macro_watchdog"),
+                                f"{business_context}\n\nSIGNAL HARVESTER OUTPUT:\n{signal_out}", 2000),
+            "competitive_intel": (_load_prompt("competitive_intel"),
+                                  f"{business_context}\n\nSIGNAL HARVESTER OUTPUT:\n{signal_out}", 2000),
+        }
+        wave2_results: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                pool.submit(run_agent, name, prompt, content, tokens, session_id): name
+                for name, (prompt, content, tokens) in wave2_tasks.items()
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    wave2_results[name] = future.result()
+                except Exception as exc:
+                    logger.error("Wave 2 agent %s failed: %s", name, exc)
+                    wave2_results[name] = f"[{name.upper()} UNAVAILABLE]"
+
+        narrative_out = wave2_results.get("narrative_intel", "")
+        macro_out = wave2_results.get("macro_watchdog", "")
+        comp_out = wave2_results.get("competitive_intel", "")
+        for name in ("narrative_intel", "macro_watchdog", "competitive_intel"):
+            specialist_outputs[name] = wave2_results[name]
+            agents_activated.append(name)
+
+        synth_out = run_agent("risk_synthesizer", _load_prompt("risk_synthesizer"),
+                              _build_synthesis_input(business_context, signal_out,
+                                                     narrative_output=narrative_out,
+                                                     macro_output=macro_out,
+                                                     competitive_output=comp_out),
+                              max_tokens=2000, session_id=session_id)
+        specialist_outputs["risk_synthesizer"] = synth_out
+        agents_activated.append("risk_synthesizer")
+
+        strat_out = run_agent("strategy_commander", _load_prompt("strategy_commander"),
+                              f"{business_context}\n\nRISK SYNTHESIZER OUTPUT:\n{synth_out}",
+                              max_tokens=2000, session_id=session_id)
+        specialist_outputs["strategy_commander"] = strat_out
+        agents_activated.append("strategy_commander")
+
+    # ── STEP 4: BUILD RESULT ─────────────────────────────────────────────────
+    total_time = round(time.perf_counter() - pipeline_start, 2)
+
+    synth_parsed: dict = {}
+    if "risk_synthesizer" in specialist_outputs:
+        synth_parsed = parse_orchestrator_response(specialist_outputs["risk_synthesizer"])
+
+    final_risk_score = synth_parsed.get("risk_score") or parsed_orch.get("risk_score")
+    final_risk_tier  = synth_parsed.get("risk_tier")  or parsed_orch.get("risk_tier")
+    final_verdict    = synth_parsed.get("verdict")    or parsed_orch.get("verdict")
+    final_top_risks  = synth_parsed.get("top_risks")  or parsed_orch.get("top_risks") or []
+    final_top_actions = (synth_parsed.get("top_actions") or parsed_orch.get("top_actions") or [])
+
+    playbook_parts = []
+    for agent_key in ["signal_harvester", "narrative_intel", "macro_watchdog",
+                      "competitive_intel", "risk_synthesizer", "strategy_commander"]:
+        if agent_key in specialist_outputs:
+            section_title = agent_key.upper().replace("_", " ")
+            playbook_parts.append(
+                f"{'━' * 60}\n{section_title}\n{'━' * 60}\n{specialist_outputs[agent_key]}"
+            )
+
+    full_playbook = "\n\n".join(playbook_parts) or None
+    primary_response = orchestrator_response if orchestrator_response else (full_playbook or "Analysis unavailable.")
+
+    result: dict = {
+        "intent_type":        intent_type,
+        "agents_activated":   agents_activated,
+        "risk_score":         final_risk_score,
+        "risk_tier":          final_risk_tier,
+        "verdict":            final_verdict,
+        "top_risks":          final_top_risks,
+        "top_actions":        final_top_actions,
+        "score_breakdown":    synth_parsed.get("score_breakdown") or {},
+        "executive_brief":    parsed_orch.get("executive_brief"),
+        "full_playbook":      full_playbook,
+        "oracle_output":      specialist_outputs.get("market_oracle"),
+        "market_pulse":       (specialist_outputs.get("signal_harvester") or
+                               parsed_orch.get("market_pulse_summary")),
+        "total_time_seconds": total_time,
+        "profile_was_used":   profile_was_used,
+        "raw_orchestrator":   orchestrator_response,
+        "specialist_outputs": specialist_outputs,
+        "primary_response":   primary_response,
+    }
+
+    # ── STEP 5: SAVE TO MEMORY ────────────────────────────────────────────────
+    sess = session_manager._get_session(session_id)
+    if intent_type in _STRIP_UPDATE_INTENTS:
+        if result["top_risks"]:
+            sess["vigil_last_top_risks"] = result["top_risks"]
+        if result["top_actions"]:
+            sess["vigil_last_top_actions"] = result["top_actions"]
+        if result["verdict"]:
+            sess["vigil_last_verdict"] = result["verdict"]
+        if result["risk_tier"]:
+            sess["vigil_last_risk_tier"] = result["risk_tier"]
+        if result["risk_score"] is not None:
+            sess["vigil_last_risk_score"] = result["risk_score"]
+        if result.get("score_breakdown"):
+            sess["vigil_last_score_breakdown"] = result["score_breakdown"]
+
+    session_manager.add_message(session_id, "user", user_message)
+    session_manager.add_message(
+        session_id, "vigil",
+        result["verdict"] or primary_response,
+        {
+            "agents_used":  result["agents_activated"],
+            "risk_score":   result["risk_score"],
+            "intent_type":  result["intent_type"],
+            "top_risks":    result["top_risks"],
+            "top_actions":  result["top_actions"],
+            "verdict":      result["verdict"],
+            "risk_tier":    result["risk_tier"],
+        },
+    )
+
+    logger.info("Pipeline complete — intent: %s | agents: %d | risk_score: %s | time: %.2fs",
+                intent_type, len(agents_activated), final_risk_score, total_time)
+
+    return result
