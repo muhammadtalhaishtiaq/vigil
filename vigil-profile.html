@@ -168,12 +168,12 @@ input.error,textarea.error{border-color:var(--re);}
 <body id="body">
 
 <header class="hdr">
-  <a class="logo" href="vigil-dashboard.html">
+  <a class="logo" href="/dashboard">
     <div class="logo-glyph">⚡</div>
     <div class="logo-name">VIGIL</div>
   </a>
   <div class="hdr-right">
-    <a class="back-btn" href="vigil-dashboard.html">← Back to Dashboard</a>
+    <a class="back-btn" href="/dashboard">← Back to Dashboard</a>
     <div class="tbtn" id="tbtn" onclick="toggleTheme()">🌙</div>
   </div>
 </header>
@@ -404,7 +404,7 @@ input.error,textarea.error{border-color:var(--re);}
 
     <!-- SAVE -->
     <button class="save-btn" onclick="saveProfile()">⚡ Activate Profile & Open Dashboard →</button>
-    <a class="skip-link" href="vigil-dashboard.html">Skip — use generic analysis →</a>
+    <a class="skip-link" href="/dashboard">Skip — use generic analysis →</a>
   </div>
 
   <!-- ── PREVIEW COLUMN ── -->
@@ -576,13 +576,16 @@ function saveProfile(){
     saved_at:new Date().toISOString()
   };
 
-  sessionStorage.setItem('vigil_profile',JSON.stringify(profile));
-  sessionStorage.setItem('vigil_auto_load','true');
-
-  const t=document.getElementById('toast');
-  t.textContent=`✓ Profile saved — Vigil is calibrated to ${name}`;
-  t.classList.add('show');
-  setTimeout(()=>{t.classList.remove('show');setTimeout(()=>window.location.href='vigil-dashboard.html',300);},1800);
+  fetch('/api/profile/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile)
+  }).catch(()=>{}).finally(()=>{
+    const t=document.getElementById('toast');
+    t.textContent=`✓ Profile saved — Vigil is calibrated to ${name}`;
+    t.classList.add('show');
+    setTimeout(()=>{t.classList.remove('show');setTimeout(()=>window.location.href='/dashboard',300);},1800);
+  });
 }
 
 /* ── THEME ── */
@@ -595,27 +598,29 @@ function toggleTheme(){
 }
 (()=>{if(sessionStorage.getItem('vt')==='light'){dark=false;document.getElementById('body').setAttribute('data-theme','light');document.getElementById('tbtn').textContent='☀️';}})();
 
-/* ── PRE-FILL if editing ── */
+/* ── PRE-FILL from backend ── */
 (()=>{
-  const saved=sessionStorage.getItem('vigil_profile');
-  if(!saved)return;
-  const p=JSON.parse(saved);
-  const setVal=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.value=v;};
-  setVal('company_name',p.company_name);setVal('website',p.website);setVal('description',p.description);
-  setVal('sector',p.sector);setVal('sub_sector',p.sub_sector);setVal('primary_market',p.primary_market);
-  setVal('country',p.country);setVal('operating_countries',p.operating_countries);
-  setVal('arr',p.arr);setVal('stage',p.stage);setVal('runway',p.runway);
-  setVal('team_size',p.team_size);setVal('currency',p.currency);
-  setVal('risk_tolerance',p.risk_tolerance);setVal('current_decisions',p.current_decisions);
-  setVal('comp_threat',p.comp_threat);setVal('constraint',p.constraint);
+  fetch('/api/profile/load')
+    .then(r=>r.json())
+    .then(p=>{
+      const setVal=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.value=v;};
+      setVal('company_name',p.company_name);setVal('website',p.website);setVal('description',p.description);
+      setVal('sector',p.sector);setVal('sub_sector',p.sub_sector);setVal('primary_market',p.primary_market);
+      setVal('country',p.country);setVal('operating_countries',p.operating_countries);
+      setVal('arr',p.arr);setVal('stage',p.stage);setVal('runway',p.runway);
+      setVal('team_size',p.team_size);setVal('currency',p.currency);
+      setVal('risk_tolerance',p.risk_tolerance);setVal('current_decisions',p.current_decisions);
+      setVal('comp_threat',p.comp_threat);setVal('constraint',p.constraint);
 
-  if(p.risk_areas){document.querySelectorAll('#riskChips .chip-opt').forEach(c=>{if(p.risk_areas.includes(c.textContent))c.classList.add('sel');});}
-  if(p.regulations){document.querySelectorAll('#regChips .chip-opt').forEach(c=>{if(p.regulations.includes(c.textContent)){c.classList.add('sel');c.classList.add('sel-reg');}});}
+      if(p.risk_areas){document.querySelectorAll('#riskChips .chip-opt').forEach(c=>{if(p.risk_areas.includes(c.textContent))c.classList.add('sel');});}
+      if(p.regulations){document.querySelectorAll('#regChips .chip-opt').forEach(c=>{if(p.regulations.includes(c.textContent)){c.classList.add('sel');c.classList.add('sel-reg');}});}
 
-  const rt=document.getElementById('risk_tolerance');
-  if(rt){rt.style.setProperty('--val',((parseInt(rt.value)-1)/4*100)+'%');document.getElementById('tolLabel').textContent=TOLERANCE_LABELS[parseInt(rt.value)-1];}
-  updatePreview();
-  document.querySelector('.save-btn').textContent='⚡ Update Profile & Re-run Briefing';
+      const rt=document.getElementById('risk_tolerance');
+      if(rt && p.risk_tolerance){rt.style.setProperty('--val',((parseInt(rt.value)-1)/4*100)+'%');document.getElementById('tolLabel').textContent=TOLERANCE_LABELS[parseInt(rt.value)-1];}
+      updatePreview();
+      if(p.company_name){document.querySelector('.save-btn').textContent='⚡ Update Profile & Re-run Briefing';}
+    })
+    .catch(()=>{});
 })();
 </script>
 </body>

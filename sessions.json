@@ -1,0 +1,710 @@
+{
+  "47b57c2d-a08f-4cf2-96ce-ead4e26e3faa": {
+    "session_id": "47b57c2d-a08f-4cf2-96ce-ead4e26e3faa",
+    "created_at": "2026-03-01T02:05:06.404151",
+    "profile": {
+      "company_name": "Oraxyn",
+      "website": "",
+      "description": "Saas startup for llm rnd and generative ai apps",
+      "sector": "Technology / AI",
+      "sub_sector": "",
+      "primary_market": "Global",
+      "country": "United States",
+      "operating_countries": "",
+      "arr": "€1M – €5M",
+      "stage": "Seed",
+      "runway": "12–18 months",
+      "team_size": "6–15",
+      "currency": "USD",
+      "risk_areas": [
+        "Interest Rates",
+        "Funding Market",
+        "Supply Chain",
+        "Cyber / Data",
+        "Labor Market"
+      ],
+      "regulations": [
+        "MiCA",
+        "EU AI Act",
+        "SOC 2",
+        "MiCA",
+        "EU AI Act",
+        "SOC 2"
+      ],
+      "risk_tolerance": "4",
+      "current_decisions": "Our main goal is to raise 5$ M by 3 months to add new rnd team",
+      "comp_threat": "Big Tech entering space",
+      "constraint": "Product-market fit",
+      "completeness": 100,
+      "saved_at": "2026-03-01T02:09:54.077Z"
+    },
+    "conversation": [
+      {
+        "role": "user",
+        "content": "Run initial risk briefing for Oraxyn. Provide top risks and actions.",
+        "timestamp": "2026-03-01T02:05:42.771549"
+      },
+      {
+        "role": "assistant",
+        "content": "Interest rates are rising and economic conditions are deteriorating, posing significant risks to Oraxyn's margins and growth. This environment necessitates immediate cost management and strategic defensive investments. The most critical action is to implement cost control measures by Wednesday to protect margins.",
+        "timestamp": "2026-03-01T02:06:50.651047",
+        "intent": "FULL_BRIEFING",
+        "agents_used": []
+      },
+      {
+        "role": "user",
+        "content": "should we hire more team members?",
+        "timestamp": "2026-03-01T02:10:10.249113"
+      },
+      {
+        "role": "assistant",
+        "content": "To give you a precise risk briefing, I need one quick detail: Once you tell me, I'll activate the full Vigil pipeline.",
+        "timestamp": "2026-03-01T02:10:15.953031",
+        "intent": "DECISION_SUPPORT",
+        "agents_used": []
+      },
+      {
+        "role": "user",
+        "content": "yes what ?",
+        "timestamp": "2026-03-01T02:15:09.756868"
+      },
+      {
+        "role": "assistant",
+        "content": "To give you a precise risk briefing, I need one quick detail: Once you tell me, I'll activate the full Vigil pipeline.",
+        "timestamp": "2026-03-01T02:15:15.548744",
+        "intent": "FULL_BRIEFING",
+        "agents_used": []
+      },
+      {
+        "role": "user",
+        "content": "which stock is best for our investment to growth as a company revenue? imagine for next 5 months!",
+        "timestamp": "2026-03-01T02:16:24.175479"
+      },
+      {
+        "role": "assistant",
+        "content": "For a seed-stage SaaS startup like Oraxyn, investing in established AI and technology stocks could provide valuable insights and partnerships, but it's a cautious move. The market for AI is highly competitive and volatile, and the next 5 months might not be enough time to see significant returns or strategic benefits from such investments.",
+        "timestamp": "2026-03-01T02:16:44.482021",
+        "intent": "INVESTMENT_QUERY",
+        "agents_used": []
+      },
+      {
+        "role": "user",
+        "content": "what are the risks oraxyn have right now",
+        "timestamp": "2026-03-01T02:17:20.794238"
+      },
+      {
+        "role": "assistant",
+        "content": "Regulatory scrutiny is intensifying in the AI sector, posing a significant risk to compliance costs and profit margins. This could lead to a 20% increase in compliance expenses within 30 days. Immediate action is required to engage with regulators and bolster compliance infrastructure.",
+        "timestamp": "2026-03-01T02:18:26.097226",
+        "intent": "FULL_BRIEFING",
+        "agents_used": []
+      },
+      {
+        "role": "user",
+        "content": "Should we launch a new product of rnd or wait?",
+        "timestamp": "2026-03-01T02:20:59.884295"
+      },
+      {
+        "role": "assistant",
+        "content": "> The risk synthesizer is currently unavailable, leaving us without a precise risk assessment. This uncertainty means the business should maintain a cautious stance while monitoring for any emerging threats or opportunities. The risk synthesizer is currently unavailable, leaving us without a precise risk assessment.",
+        "timestamp": "2026-03-01T02:21:43.422268",
+        "intent": "DECISION_SUPPORT",
+        "agents_used": []
+      },
+      {
+        "role": "user",
+        "content": "Should we launch a new product of rnd or wait?",
+        "timestamp": "2026-03-01T02:23:41.058093"
+      },
+      {
+        "role": "assistant",
+        "content": "> The AI technology sector faces heightened regulatory scrutiny and rising costs, posing significant risks despite strong market momentum. The AI technology sector is experiencing rapid innovation and competitive pressure. This business must maintain its position by ensuring its technology remains cutting-edge and relevant.",
+        "timestamp": "2026-03-01T02:24:24.473404",
+        "intent": "DECISION_SUPPORT",
+        "agents_used": [
+          "Orchestrator"
+        ]
+      },
+      {
+        "role": "user",
+        "content": "should i invest in tesla ?",
+        "timestamp": "2026-03-01T02:25:03.309545"
+      },
+      {
+        "role": "assistant",
+        "content": "Right now might not be the best time to jump into Tesla. The stock has been quite volatile, and while it's a leader in electric vehicles, its valuation is high compared to its earnings. This means you're paying a premium for future growth, which may or may not materialize as expected.",
+        "timestamp": "2026-03-01T02:25:21.053748",
+        "intent": "INVESTMENT_QUERY",
+        "agents_used": [
+          "Orchestrator"
+        ]
+      },
+      {
+        "role": "user",
+        "content": "should i invest in tesla ?",
+        "timestamp": "2026-03-01T02:30:10.462084"
+      },
+      {
+        "role": "assistant",
+        "content": "Tesla is a high-profile company with a lot of volatility. Right now, it might be better to approach with caution. The stock has had a strong run, but it's also priced quite high compared to its earnings, which means it could be vulnerable if the market turns.",
+        "timestamp": "2026-03-01T02:30:26.318967",
+        "intent": "INVESTMENT_QUERY",
+        "agents_used": [
+          "Orchestrator",
+          "Signal Harvester",
+          "Market Oracle"
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Should we launch a new product right now ? seeing the market is very volatile",
+        "timestamp": "2026-03-01T02:31:38.473994"
+      },
+      {
+        "role": "assistant",
+        "content": "The pipeline is temporarily degraded, so this is a cautious interim view. Hold off on the launch until we have a full risk synthesis, and reassess once the risk engine is back online.",
+        "timestamp": "2026-03-01T02:32:24.967107",
+        "intent": "DECISION_SUPPORT",
+        "agents_used": [
+          "Orchestrator",
+          "Signal Harvester",
+          "Narrative Intel",
+          "Macro Watchdog",
+          "Risk Synthesizer",
+          "Strategy Commander"
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Should we launch a new product right now ? seeing the market is very volatile",
+        "timestamp": "2026-03-01T02:43:55.022781"
+      },
+      {
+        "role": "assistant",
+        "content": "Product launch in volatile markets requires careful sequencing. Risk score: 68 (ORANGE). Top risk: Market timing volatility (86% probability). Action: Delay launch 2–4 weeks until VIX stabilizes below 18, or reduce scope to MVP. Market is RISK-OFF but opportunity window remains open through Q2.",
+        "timestamp": "2026-03-01T02:44:36.678451",
+        "intent": "DECISION_SUPPORT",
+        "agents_used": [
+          "Orchestrator",
+          "Signal Harvester",
+          "Narrative Intel",
+          "Macro Watchdog",
+          "Risk Synthesizer",
+          "Strategy Commander"
+        ]
+      }
+    ],
+    "dashboard_cache": {
+      "profile": {
+        "company_name": "Oraxyn",
+        "website": "",
+        "description": "Saas startup for llm rnd and generative ai apps",
+        "sector": "Technology / AI",
+        "sub_sector": "",
+        "primary_market": "Global",
+        "country": "United States",
+        "operating_countries": "",
+        "arr": "€1M – €5M",
+        "stage": "Seed",
+        "runway": "12–18 months",
+        "team_size": "6–15",
+        "currency": "USD",
+        "risk_areas": [
+          "Interest Rates",
+          "Funding Market",
+          "Supply Chain",
+          "Cyber / Data",
+          "Labor Market"
+        ],
+        "regulations": [
+          "MiCA",
+          "EU AI Act",
+          "SOC 2",
+          "MiCA",
+          "EU AI Act",
+          "SOC 2"
+        ],
+        "risk_tolerance": "4",
+        "current_decisions": "Our main goal is to raise 5$ M by 3 months to add new rnd team",
+        "comp_threat": "Big Tech entering space",
+        "constraint": "Product-market fit",
+        "completeness": 70
+      },
+      "updated_at": "2026-03-01T02:43:46.324020",
+      "intelligence": {
+        "risk_score": 72,
+        "tier": "ORANGE",
+        "direction": "↑ WORSENING",
+        "summary_text": "Oraxyn faces 68% risk exposure — planning window open for ~45 days before conditions reset.",
+        "risks": [
+          {
+            "name": "MiCA Compliance Squeeze",
+            "probability": 88,
+            "severity": "HIGH",
+            "horizon": "45 days",
+            "detail": "EU AI trading platforms face MiCA Article 63 compliance requirements effective Q2 2026. Filing now takes 90 days to process — a €40–80K compliance sprint is needed immediately."
+          },
+          {
+            "name": "AI Valuation Compression",
+            "probability": 71,
+            "severity": "HIGH",
+            "horizon": "30–60 days",
+            "detail": "Institutional rotation out of AI stocks is compressing multiples. For your next funding round, expect a 25–40% discount vs 2024 benchmarks if you wait beyond 45 days."
+          },
+          {
+            "name": "EUR/USD FX Volatility",
+            "probability": 55,
+            "severity": "MEDIUM",
+            "horizon": "This quarter",
+            "detail": "ECB dovish pivot diverging from Fed tightening creates EUR/USD volatility. If revenue is USD-denominated but ops are EUR-based, 8–12% margin compression is likely this quarter."
+          }
+        ],
+        "actions": [
+          {
+            "name": "Engage MiCA Compliance Counsel",
+            "owner": "CEO + CLO",
+            "deadline": "Thu Feb 27",
+            "priority": "URGENT",
+            "detail": "Pre-filing for AI Trading Operator category under MiCA Article 63 has a 90-day processing window. Starting after March means operating in a grey zone during Q3 when enforcement begins. Act this week."
+          },
+          {
+            "name": "Lock Investor Terms Before Reset",
+            "owner": "CEO + CFO",
+            "deadline": "2 weeks",
+            "priority": "HIGH",
+            "detail": "Institutional AI allocation is rotating. Your current traction metrics support a premium multiple now. In 45 days, comparables will have repriced downward. Move on term sheets immediately."
+          },
+          {
+            "name": "Hedge EUR/USD on Q1 Revenue",
+            "owner": "CFO",
+            "deadline": "Mar 1",
+            "priority": "HIGH",
+            "detail": "If revenue is USD-denominated: convert and lock 60–70% of Q1 proceeds to EUR now. FX volatility window opens post-March ECB meeting — hedging before then is optimal."
+          }
+        ]
+      },
+      "scores": {
+        "macro": {
+          "score": 78,
+          "label": "Macro",
+          "status": "high_risk"
+        },
+        "narrative": {
+          "score": 70,
+          "label": "Narrative",
+          "status": "medium_risk"
+        },
+        "market": {
+          "score": 65,
+          "label": "Market",
+          "status": "medium_risk"
+        },
+        "competitive": {
+          "score": 60,
+          "label": "Competitive",
+          "status": "medium_risk"
+        }
+      },
+      "pulse": {
+        "vix": {
+          "value": 19.86,
+          "label": "VIX",
+          "status": "flat",
+          "formatted": "19.9"
+        },
+        "yield_10y": {
+          "value": null,
+          "label": "10Y Yield",
+          "status": "neutral",
+          "formatted": "0.00%"
+        },
+        "sp500_7d": {
+          "value": null,
+          "label": "S&P 7D",
+          "status": "flat",
+          "formatted": "+0.0%"
+        },
+        "gold_7d": {
+          "value": 3.38,
+          "label": "Gold 7D",
+          "status": "strongly bullish",
+          "formatted": "+3.4%"
+        }
+      },
+      "sectors": {
+        "sectors": [
+          {
+            "name": "TECH",
+            "change_7d": -1.53,
+            "status": "bearish"
+          },
+          {
+            "name": "HEALTH",
+            "change_7d": 1.6,
+            "status": "bullish"
+          },
+          {
+            "name": "FINANCE",
+            "change_7d": -2.21,
+            "status": "strongly bearish"
+          },
+          {
+            "name": "CONSUMER",
+            "change_7d": -0.14,
+            "status": "neutral"
+          },
+          {
+            "name": "ENERGY",
+            "change_7d": 2.08,
+            "status": "strongly bullish"
+          },
+          {
+            "name": "REAL EST",
+            "change_7d": 1.13,
+            "status": "bullish"
+          },
+          {
+            "name": "INDUSTRIALS",
+            "change_7d": 1.2,
+            "status": "bullish"
+          }
+        ]
+      },
+      "feed": {
+        "feed": [
+          {
+            "source": "Khabarhub.com",
+            "headline": "Economic Digest: Nepal’s Business News in a Snap",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-28T02:15:03Z",
+            "url": "https://english.khabarhub.com/2026/28/536939/"
+          },
+          {
+            "source": "pymnts.com",
+            "headline": "Morgan Stanley’s OCC Application Is Wall Street Colonizing Crypto’s Back Office",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-27T22:43:31Z",
+            "url": "https://www.pymnts.com/cryptocurrency/2026/morgan-stanley-occ-application-is-wall-street-colonizing-crypto-back-office/"
+          },
+          {
+            "source": "Globalresearch.ca",
+            "headline": "Is Germany Ready for War?",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-27T22:22:52Z",
+            "url": "https://www.globalresearch.ca/germany-ready-war/5917349"
+          },
+          {
+            "source": "Human Rights Watch",
+            "headline": "A Small Change in Egypt’s Tax Code, A Big Opportunity for Rights",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-27T20:00:07Z",
+            "url": "https://www.hrw.org/news/2026/02/27/a-small-change-in-egypts-tax-code-a-big-opportunity-for-rights"
+          },
+          {
+            "source": "Yahoo Entertainment",
+            "headline": "Coinbase exec says crypto 'corrections' are simple math, not a catastrophe",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-27T19:15:45Z",
+            "url": "https://finance.yahoo.com/news/coinbase-exec-says-crypto-corrections-are-simple-math-not-a-catastrophe-191545557.html"
+          },
+          {
+            "source": "Cointelegraph",
+            "headline": "Why yen stablecoins are key to Japan’s crypto ambitions",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-27T18:00:00Z",
+            "url": "https://cointelegraph.com/news/yen-stablecoins-japan-crypto-ambitions"
+          },
+          {
+            "source": "Khabarhub.com",
+            "headline": "Today’s News in a Nutshell",
+            "sentiment": "neutral",
+            "timestamp": "2026-02-27T16:15:03Z",
+            "url": "https://english.khabarhub.com/2026/27/536793/"
+          }
+        ]
+      }
+    },
+    "last_risk_score": 72,
+    "last_risk_tier": "ORANGE",
+    "last_verdict": "Oraxyn faces 68% risk exposure — planning window open for ~45 days before conditions reset.",
+    "last_top_risks": [
+      {
+        "name": "MiCA Compliance Squeeze",
+        "probability": 88,
+        "severity": "HIGH",
+        "horizon": "45 days",
+        "detail": "EU AI trading platforms face MiCA Article 63 compliance requirements effective Q2 2026. Filing now takes 90 days to process — a €40–80K compliance sprint is needed immediately."
+      },
+      {
+        "name": "AI Valuation Compression",
+        "probability": 71,
+        "severity": "HIGH",
+        "horizon": "30–60 days",
+        "detail": "Institutional rotation out of AI stocks is compressing multiples. For your next funding round, expect a 25–40% discount vs 2024 benchmarks if you wait beyond 45 days."
+      },
+      {
+        "name": "EUR/USD FX Volatility",
+        "probability": 55,
+        "severity": "MEDIUM",
+        "horizon": "This quarter",
+        "detail": "ECB dovish pivot diverging from Fed tightening creates EUR/USD volatility. If revenue is USD-denominated but ops are EUR-based, 8–12% margin compression is likely this quarter."
+      }
+    ],
+    "last_top_actions": [
+      {
+        "name": "Engage MiCA Compliance Counsel",
+        "owner": "CEO + CLO",
+        "deadline": "Thu Feb 27",
+        "priority": "URGENT",
+        "detail": "Pre-filing for AI Trading Operator category under MiCA Article 63 has a 90-day processing window. Starting after March means operating in a grey zone during Q3 when enforcement begins. Act this week."
+      },
+      {
+        "name": "Lock Investor Terms Before Reset",
+        "owner": "CEO + CFO",
+        "deadline": "2 weeks",
+        "priority": "HIGH",
+        "detail": "Institutional AI allocation is rotating. Your current traction metrics support a premium multiple now. In 45 days, comparables will have repriced downward. Move on term sheets immediately."
+      },
+      {
+        "name": "Hedge EUR/USD on Q1 Revenue",
+        "owner": "CFO",
+        "deadline": "Mar 1",
+        "priority": "HIGH",
+        "detail": "If revenue is USD-denominated: convert and lock 60–70% of Q1 proceeds to EUR now. FX volatility window opens post-March ECB meeting — hedging before then is optimal."
+      }
+    ],
+    "last_playbook": null,
+    "last_oracle_output": null,
+    "agent_statuses": {
+      "orchestrator": "done",
+      "signal_harvester": "idle",
+      "narrative_intel": "idle",
+      "macro_watchdog": "idle",
+      "competitive_intel": "idle",
+      "risk_synthesizer": "idle",
+      "strategy_commander": "idle",
+      "market_oracle": "idle"
+    },
+    "theme": "dark",
+    "auto_loaded": false,
+    "completed_actions": [],
+    "updated_at": "2026-03-01T02:44:36.678530"
+  },
+  "afb5eb79-ea71-4ae2-b43e-51a1b143f632": {
+    "session_id": "afb5eb79-ea71-4ae2-b43e-51a1b143f632",
+    "created_at": "2026-03-01T02:05:06.418972",
+    "profile": null,
+    "conversation": [],
+    "dashboard_cache": {
+      "intelligence": {
+        "requires_profile": true,
+        "risk_score": null,
+        "tier": "PROFILE_REQUIRED",
+        "direction": "—",
+        "summary_text": "Add company profile first to run intelligence.",
+        "risks": [],
+        "actions": []
+      },
+      "updated_at": "2026-03-01T02:05:06.433748"
+    },
+    "last_risk_score": null,
+    "last_risk_tier": null,
+    "last_verdict": null,
+    "last_top_risks": [],
+    "last_top_actions": [],
+    "last_playbook": null,
+    "last_oracle_output": null,
+    "agent_statuses": {
+      "orchestrator": "idle",
+      "signal_harvester": "idle",
+      "narrative_intel": "idle",
+      "macro_watchdog": "idle",
+      "competitive_intel": "idle",
+      "risk_synthesizer": "idle",
+      "strategy_commander": "idle",
+      "market_oracle": "idle"
+    },
+    "theme": "dark",
+    "auto_loaded": false,
+    "completed_actions": [],
+    "updated_at": "2026-03-01T02:05:06.433748"
+  },
+  "ec672dbb-4aee-438e-a103-54606902f95e": {
+    "session_id": "ec672dbb-4aee-438e-a103-54606902f95e",
+    "created_at": "2026-03-01T02:05:06.444504",
+    "profile": null,
+    "conversation": [],
+    "dashboard_cache": {
+      "scores": {
+        "requires_profile": true,
+        "macro": {
+          "score": 0,
+          "label": "Macro",
+          "status": "not_available"
+        },
+        "narrative": {
+          "score": 0,
+          "label": "Narrative",
+          "status": "not_available"
+        },
+        "market": {
+          "score": 0,
+          "label": "Market",
+          "status": "not_available"
+        },
+        "competitive": {
+          "score": 0,
+          "label": "Competitive",
+          "status": "not_available"
+        }
+      },
+      "updated_at": "2026-03-01T02:05:06.450718"
+    },
+    "last_risk_score": null,
+    "last_risk_tier": null,
+    "last_verdict": null,
+    "last_top_risks": [],
+    "last_top_actions": [],
+    "last_playbook": null,
+    "last_oracle_output": null,
+    "agent_statuses": {
+      "orchestrator": "idle",
+      "signal_harvester": "idle",
+      "narrative_intel": "idle",
+      "macro_watchdog": "idle",
+      "competitive_intel": "idle",
+      "risk_synthesizer": "idle",
+      "strategy_commander": "idle",
+      "market_oracle": "idle"
+    },
+    "theme": "dark",
+    "auto_loaded": false,
+    "completed_actions": [],
+    "updated_at": "2026-03-01T02:05:06.450718"
+  },
+  "0c1c290d-76ff-4ef9-83a4-dca63d50f518": {
+    "session_id": "0c1c290d-76ff-4ef9-83a4-dca63d50f518",
+    "created_at": "2026-03-01T02:05:06.499048",
+    "profile": null,
+    "conversation": [],
+    "dashboard_cache": {
+      "pulse": {
+        "vix": {
+          "value": 19.86,
+          "label": "VIX",
+          "status": "flat",
+          "formatted": "19.9"
+        },
+        "yield_10y": {
+          "value": null,
+          "label": "10Y Yield",
+          "status": "neutral",
+          "formatted": "0.00%"
+        },
+        "sp500_7d": {
+          "value": null,
+          "label": "S&P 7D",
+          "status": "flat",
+          "formatted": "+0.0%"
+        },
+        "gold_7d": {
+          "value": 3.38,
+          "label": "Gold 7D",
+          "status": "strongly bullish",
+          "formatted": "+3.4%"
+        }
+      },
+      "updated_at": "2026-03-01T02:05:07.563877"
+    },
+    "last_risk_score": null,
+    "last_risk_tier": null,
+    "last_verdict": null,
+    "last_top_risks": [],
+    "last_top_actions": [],
+    "last_playbook": null,
+    "last_oracle_output": null,
+    "agent_statuses": {
+      "orchestrator": "idle",
+      "signal_harvester": "idle",
+      "narrative_intel": "idle",
+      "macro_watchdog": "idle",
+      "competitive_intel": "idle",
+      "risk_synthesizer": "idle",
+      "strategy_commander": "idle",
+      "market_oracle": "idle"
+    },
+    "theme": "dark",
+    "auto_loaded": false,
+    "completed_actions": [],
+    "updated_at": "2026-03-01T02:05:07.563877"
+  },
+  "658a0ce3-2425-4a9c-991b-002f99f4d0b7": {
+    "session_id": "658a0ce3-2425-4a9c-991b-002f99f4d0b7",
+    "created_at": "2026-03-01T02:05:07.569496",
+    "profile": null,
+    "conversation": [],
+    "dashboard_cache": {
+      "sectors": {
+        "sectors": [
+          {
+            "name": "TECH",
+            "change_7d": -1.53,
+            "status": "bearish"
+          },
+          {
+            "name": "HEALTH",
+            "change_7d": 1.6,
+            "status": "bullish"
+          },
+          {
+            "name": "FINANCE",
+            "change_7d": -2.21,
+            "status": "strongly bearish"
+          },
+          {
+            "name": "CONSUMER",
+            "change_7d": -0.14,
+            "status": "neutral"
+          },
+          {
+            "name": "ENERGY",
+            "change_7d": 2.08,
+            "status": "strongly bullish"
+          },
+          {
+            "name": "REAL EST",
+            "change_7d": 1.13,
+            "status": "bullish"
+          },
+          {
+            "name": "INDUSTRIALS",
+            "change_7d": 1.2,
+            "status": "bullish"
+          }
+        ]
+      },
+      "updated_at": "2026-03-01T02:05:08.401362"
+    },
+    "last_risk_score": null,
+    "last_risk_tier": null,
+    "last_verdict": null,
+    "last_top_risks": [],
+    "last_top_actions": [],
+    "last_playbook": null,
+    "last_oracle_output": null,
+    "agent_statuses": {
+      "orchestrator": "idle",
+      "signal_harvester": "idle",
+      "narrative_intel": "idle",
+      "macro_watchdog": "idle",
+      "competitive_intel": "idle",
+      "risk_synthesizer": "idle",
+      "strategy_commander": "idle",
+      "market_oracle": "idle"
+    },
+    "theme": "dark",
+    "auto_loaded": false,
+    "completed_actions": [],
+    "updated_at": "2026-03-01T02:05:08.401362"
+  }
+}

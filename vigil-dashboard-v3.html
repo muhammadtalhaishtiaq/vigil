@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vigil — Risk Intelligence Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Cabinet+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/vigil-dashboard-v3.css">
+</head>
+<body>
+<div class="app" id="app">
+
+<!-- ═══════════════════════════════════
+     ROW 1 · HEADER
+═══════════════════════════════════ -->
+<header class="hdr">
+  <a class="logo" href="/">
+    <div class="logo-glyph">⚡</div>
+    <div class="logo-name">VIGIL</div>
+  </a>
+  <div class="vdiv"></div>
+
+  <div class="aflow" id="agentFlow">
+    <div class="afn " data-i="0"><div class="afd"></div>Orchestrator</div>
+    <div class="afx">›</div>
+    <div class="afn " data-i="1"><div class="afd"></div>Signal</div>
+    <div class="afx">›</div>
+    <div class="afn " data-i="2"><div class="afd"></div>Narrative</div>
+    <div class="afx">›</div>
+    <div class="afn " data-i="3"><div class="afd"></div>Macro</div>
+    <div class="afx">›</div>
+    <div class="afn " data-i="4"><div class="afd"></div>Competitive</div>
+    <div class="afx">›</div>
+    <div class="afn" data-i="5"><div class="afd"></div>Synthesizer</div>
+    <div class="afx">›</div>
+    <div class="afn" data-i="6"><div class="afd"></div>Oracle</div>
+    <div class="afx">›</div>
+    <div class="afn" data-i="7"><div class="afd"></div>Commander</div>
+  </div>
+
+  <div class="vdiv"></div>
+  <div class="hright">
+    <div class="prof-pill" onclick="location.href='/profile'">
+      <div class="pdot"></div>
+      <span>Loading profile…</span>
+      <span style="color:var(--tx3);margin-left:3px;font-size:8.5px;">· Edit</span>
+    </div>
+    <div class="live-badge"><div class="ldot"></div>LIVE</div>
+    <div class="hclock" id="clock">--:--</div>
+    <div class="tbtn" id="tbtn" onclick="toggleTheme()">🌙</div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════
+     ROW 2 · VERDICT BAR
+═══════════════════════════════════ -->
+<div class="vbar">
+  <div class="vscore">
+    <div class="vsnum" id="vscore">--</div>
+    <div class="vstier" id="vtier">LOADING</div>
+    <div class="vsdir" id="vdir">…</div>
+  </div>
+  <div class="vdiv"></div>
+  <div class="vtext" id="vtext">
+    Loading latest backend intelligence…
+  </div>
+  <div class="vdiv"></div>
+  <div class="vchips">
+    <div class="vc" onclick="fc('Go deeper on MiCA compliance timeline')">MiCA →</div>
+    <div class="vc" onclick="fc('Show me the full 30-day playbook')">Playbook →</div>
+    <div class="vc" onclick="fc('What if ECB cuts rates next month?')">ECB? →</div>
+    <div class="vc" onclick="fc('Should I buy NASDAQ stocks right now?')">Invest? →</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     ROW 3 · INTELLIGENCE BAR
+     Compact strip = always visible summary
+     Click anywhere on strip → drawer slides open with full detail
+═══════════════════════════════════════════════════ -->
+<div class="ibar on" id="ibar">
+
+  <!-- ── Summary strip: click to open/close drawer ── -->
+  <div class="ibar-strip" id="ibarStrip" onclick="toggleDrawer()">
+    <div class="sl">RISKS</div>
+    <div class="rchip rc1" onclick="openDrawerTo(event,'risks')">
+      <span style="font-size:9px">🔴</span>
+      <span class="chip-txt">Loading…</span>
+      <span class="chip-meta">--</span>
+    </div>
+    <div class="rchip rc2" onclick="openDrawerTo(event,'risks')">
+      <span style="font-size:9px">🟠</span>
+      <span class="chip-txt">Loading…</span>
+      <span class="chip-meta">--</span>
+    </div>
+    <div class="rchip rc3" onclick="openDrawerTo(event,'risks')">
+      <span style="font-size:9px">🟡</span>
+      <span class="chip-txt">Loading…</span>
+      <span class="chip-meta">--</span>
+    </div>
+    <div class="sdiv"></div>
+    <div class="sl">ACTIONS</div>
+    <div class="achip" onclick="openDrawerTo(event,'actions')">
+      <span style="font-size:9px">✅</span>
+      <span class="chip-txt">Loading…</span>
+      <span class="chip-meta" style="background:rgba(0,230,118,.15)">--</span>
+    </div>
+    <div class="achip" onclick="openDrawerTo(event,'actions')">
+      <span style="font-size:9px">✅</span>
+      <span class="chip-txt">Loading…</span>
+      <span class="chip-meta" style="background:rgba(0,230,118,.15)">--</span>
+    </div>
+    <div class="achip" onclick="openDrawerTo(event,'actions')">
+      <span style="font-size:9px">✅</span>
+      <span class="chip-txt">Loading…</span>
+      <span class="chip-meta" style="background:rgba(0,230,118,.15)">--</span>
+    </div>
+    <div class="ibar-hint">
+      <span>Full details</span>
+      <span class="ibar-caret">▾</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       INTELLIGENCE DRAWER — slides down, full width
+  ══════════════════════════════════════════════ -->
+  <div class="idrawer" id="idrawer">
+
+    <!-- tab bar -->
+    <div class="dtabs">
+      <div class="dtab active" id="dtab-risks"    onclick="switchDTab('risks',this)">🔴 Risks</div>
+      <div class="dtab"        id="dtab-actions"  onclick="switchDTab('actions',this)">✅ Actions</div>
+      <div class="dtab"        id="dtab-playbook" onclick="switchDTab('playbook',this)">📋 Playbook</div>
+      <div class="dtab"        id="dtab-oracle"   onclick="switchDTab('oracle',this)">🔮 Oracle</div>
+      <div class="dtab"        id="dtab-scores"   onclick="switchDTab('scores',this)">📊 Scores</div>
+      <div class="dtab-close" onclick="closeDrawer()">✕ Close</div>
+    </div>
+
+    <!-- scrollable body -->
+    <div class="dbody">
+
+      <!-- ── RISKS ── -->
+      <div class="dtabpanel active" id="dpanel-risks">
+        <div class="drisks-grid" id="drawerRisks">
+          <div class="drc">
+            <div class="drc-detail">Loading risk details from backend…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── ACTIONS ── -->
+      <div class="dtabpanel" id="dpanel-actions">
+        <div class="dactions-grid" id="drawerActions">
+          <div class="dac">
+            <div class="dac-detail">Loading action plan from backend…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PLAYBOOK ── -->
+      <div class="dtabpanel" id="dpanel-playbook">
+        <div class="dplaybook-layout">
+          <div>
+            <button class="dpb-copy" onclick="copyPlaybook()">📋 Copy playbook</button>
+            <div class="dpb-content" id="playbookContent">Loading playbook from backend intelligence…</div>
+          </div>
+          <div class="dpb-sidebar">
+            <div class="dpbs-lbl">Vigil Stance</div>
+            <div class="dpbs-val" id="playbookStance">Loading…</div>
+            <div id="playbookScores"></div>
+            <div class="dpbs-composite">
+              <div class="dpbs-clbl">Composite</div>
+              <div class="dpbs-cval" id="playbookComposite">--</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── ORACLE ── -->
+      <div class="dtabpanel" id="dpanel-oracle">
+        <div class="doracle-layout">
+          <div class="dov-box">
+            <div class="dov-lbl">Oracle Verdict</div>
+            <div class="dov-val" id="oracleVerdict" style="color:var(--tx2)">Loading…</div>
+            <div class="dov-conf" id="oracleConfidence">Waiting for backend signal</div>
+          </div>
+          <div class="doracle-cases" id="oracleCases">
+            <div class="doc take">Backend oracle signals will appear after data load.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SCORES ── -->
+      <div class="dtabpanel" id="dpanel-scores">
+        <div class="dscores-layout">
+          <div>
+            <div class="dsc-rows" id="drawerScoresRows"></div>
+            <div class="dsc-formula" id="drawerScoresFormula">Loading formula from backend scores…</div>
+          </div>
+          <div class="dsc-right">
+            <div class="dsc-big">
+              <div class="dsc-big-lbl">Composite Risk Score</div>
+              <div class="dsc-big-val" id="drawerCompositeValue">--</div>
+              <div class="dsc-big-tier" id="drawerCompositeTier">LOADING</div>
+            </div>
+            <div class="dsc-coherence">
+              <div class="dsc-coh-lbl">Signal Coherence</div>
+              <div class="dsc-coh-badge">
+                <div class="dsc-coh-dot"></div>
+                <div class="dsc-coh-txt" id="drawerCoherence">Loading…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /dbody -->
+  </div><!-- /idrawer -->
+
+</div><!-- /ibar -->
+
+<!-- ═══════════════════════════════════
+     ROW 4 · MAIN BODY
+═══════════════════════════════════ -->
+<div class="mbody">
+
+  <!-- ── LEFT PANEL ── -->
+  <div class="lpanel">
+    <div class="lptop">
+      <div class="ptitle">📡 Live Feed <span style="color:var(--g);font-size:7.5px">● live</span></div>
+      <div class="pscroll" id="liveFeedList">
+        <div class="ni"><div class="ni-src">Vigil</div><div class="ni-hl">Loading live feed from backend…</div><div class="ni-t">now</div></div>
+      </div>
+    </div>
+    <div class="lpbot">
+      <div class="ptitle">📊 Top Sectors</div>
+      <div class="pscroll" id="topSectorsPanel">
+        <div class="smini" id="topSectorsList">
+          <div class="sb"><div class="sbn">Loading…</div><div class="sbp fl">--</div></div>
+        </div>
+        <div class="regime-card">
+          <div class="regime-val" id="regimeValue">Loading…</div>
+          <div class="regime-sub" id="regimeSub">Waiting for market pulse</div>
+        </div>
+        <div class="stance-card">
+          <div class="stance-lbl">Vigil Stance</div>
+          <div class="stance-val" id="stanceValue">Loading…</div>
+        </div>
+      </div>
+    </div>
+    <div class="lpbot">
+      <div class="pscroll" id="sectorNewsList">
+        <div class="ptitle" style="position:sticky;top:0;background:var(--sf);z-index:1;">📰 Sector News</div>
+        <div class="rni"><div class="rni-src">Vigil</div><div class="rni-hl">Loading backend sector headlines…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CENTER: CHAT ── -->
+  <div class="cpanel">
+    <div class="cthread" id="chatThread">
+      <div class="msg sys" id="autoBriefMessage">
+        <div class="mlbl">⚡ Vigil · Backend sync</div>
+        <div class="bubble" style="color:var(--tx2);font-size:11px;">Loading live briefing…</div>
+      </div>
+    </div>
+
+    <div class="cinput-wrap">
+      <div class="crow">
+        <input class="cin" id="cin" placeholder="Ask Vigil — company context active..." onkeydown="if(event.key==='Enter'&&!event.shiftKey)send()" />
+        <button class="sbtn" id="sbtn" onclick="send()">⚡ ANALYZE</button>
+      </div>
+      <div class="qrow">
+        <div class="qp" onclick="fc('Should we delay our Series A by 60 days?')">Delay Series A?</div>
+        <div class="qp" onclick="fc('What does MiCA mean for us specifically?')">MiCA impact</div>
+        <div class="qp" onclick="fc('What if ECB cuts 50bps next meeting?')">ECB scenario</div>
+        <div class="qp" onclick="fc('Hiring decisions this quarter?')">Hiring stance</div>
+        <div class="qp" onclick="fc('Is gold a good safe haven investment now?')">Buy gold?</div>
+        <div class="qp" onclick="fc('How exposed are we to EUR/USD volatility?')">FX exposure</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="rpanel">
+    <!-- profile -->
+    <div class="rblock">
+      <div class="ptitle">🏢 Profile</div>
+      <div class="cctx">
+        <div class="ccname">Loading…</div>
+        <div class="ccsub">Loading profile context…</div>
+        <div class="cctags"></div>
+        <a class="elink" href="/profile">✏ Edit profile →</a>
+      </div>
+    </div>
+
+    <!-- score breakdown -->
+    <div class="rblock">
+      <div class="ptitle">Score Breakdown</div>
+      <div class="bdown">
+        <div class="bdr"><div class="bdl">Macro</div><div class="bdt"><div class="bdf" style="width:78%;background:var(--re)"></div></div><div class="bdv">78</div></div>
+        <div class="bdr"><div class="bdl">Narrative</div><div class="bdt"><div class="bdf" style="width:70%;background:var(--or)"></div></div><div class="bdv">70</div></div>
+        <div class="bdr"><div class="bdl">Market</div><div class="bdt"><div class="bdf" style="width:65%;background:var(--or)"></div></div><div class="bdv">65</div></div>
+        <div class="bdr"><div class="bdl">Competitive</div><div class="bdt"><div class="bdf" style="width:60%;background:var(--ye)"></div></div><div class="bdv">60</div></div>
+      </div>
+    </div>
+
+    <!-- market pulse -->
+    <div class="rblock">
+      <div class="ptitle">Market Pulse</div>
+      <div class="pulse-grid">
+        <div class="pm"><div class="pmk">VIX</div><div class="pmv dn">24.7</div></div>
+        <div class="pm"><div class="pmk">10Y Yield</div><div class="pmv dn">4.61%</div></div>
+        <div class="pm"><div class="pmk">S&P 7D</div><div class="pmv dn">-1.8%</div></div>
+        <div class="pm"><div class="pmk">Gold 7D</div><div class="pmv up">+2.1%</div></div>
+      </div>
+    </div>
+
+    <!-- full sectors -->
+    <div class="rblock">
+      <div class="ptitle">📊 All Sectors (7D)</div>
+      <div class="sgrid">
+        <div class="sgb dn" onclick="fc('Analyze risk for a company in the Technology sector')"><div class="sgbn">TECH</div><div class="sgbp dn">-2.3%</div></div>
+        <div class="sgb up" onclick="fc('Analyze risk for a company in the Healthcare sector')"><div class="sgbn">HEALTH</div><div class="sgbp up">+1.1%</div></div>
+        <div class="sgb dn" onclick="fc('Analyze risk for a company in the Financial sector')"><div class="sgbn">FINANCE</div><div class="sgbp dn">-0.8%</div></div>
+        <div class="sgb" style="background:var(--sf2)" onclick="fc('Analyze risk for a company in the Consumer sector')"><div class="sgbn">CONSUMER</div><div class="sgbp fl">-0.2%</div></div>
+        <div class="sgb up" onclick="fc('Analyze risk for a company in the Energy sector')"><div class="sgbn">ENERGY</div><div class="sgbp up">+2.8%</div></div>
+        <div class="sgb dn" onclick="fc('Analyze risk for a company in the Real Estate sector')"><div class="sgbn">REAL EST</div><div class="sgbp dn">-1.4%</div></div>
+        <div class="sgb" style="background:var(--sf2);grid-column:1/-1" onclick="fc('Analyze risk for a company in the Industrials sector')"><div class="sgbn">INDUSTRIALS</div><div class="sgbp fl">+0.3%</div></div>
+      </div>
+    </div>
+
+  </div><!-- /rpanel -->
+
+</div><!-- /mbody -->
+</div><!-- /app -->
+
+<script src="./static/vigil-dashboard-v3.js"></script>
+</body>

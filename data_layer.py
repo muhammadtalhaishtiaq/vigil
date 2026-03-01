@@ -144,34 +144,10 @@ def get_live_headlines(sector: str = "finance") -> list[dict]:
             publishedAt (str) — ISO 8601
             sentiment   (str) — "positive" | "neutral" | "negative"
     """
-    _FALLBACK = [
-        {
-            "title": "Markets steady as investors await Fed guidance",
-            "source": "Reuters",
-            "url": "https://reuters.com",
-            "publishedAt": datetime.now(timezone.utc).isoformat(),
-            "sentiment": "neutral",
-        },
-        {
-            "title": "Inflation data shows cooling trend for third consecutive month",
-            "source": "Bloomberg",
-            "url": "https://bloomberg.com",
-            "publishedAt": datetime.now(timezone.utc).isoformat(),
-            "sentiment": "positive",
-        },
-        {
-            "title": "Tech sector faces headwinds amid rising yield concerns",
-            "source": "FT",
-            "url": "https://ft.com",
-            "publishedAt": datetime.now(timezone.utc).isoformat(),
-            "sentiment": "negative",
-        },
-    ]
-
     api_key = _get_secret("NEWSAPI_KEY")
     if not api_key:
-        logger.warning("NEWSAPI_KEY not set — returning fallback headlines")
-        return _FALLBACK
+        logger.warning("NEWSAPI_KEY not set — returning empty headlines")
+        return []
 
     query = f"{sector} economy market finance"
     url = "https://newsapi.org/v2/everything"
@@ -202,10 +178,10 @@ def get_live_headlines(sector: str = "finance") -> list[dict]:
                 }
             )
         logger.info("Headlines fetched: %d articles for sector '%s'", len(results), sector)
-        return results if results else _FALLBACK
+        return results
     except Exception as exc:
-        logger.error("get_live_headlines failed: %s — returning fallback", exc)
-        return _FALLBACK
+        logger.error("get_live_headlines failed: %s — returning empty", exc)
+        return []
 
 
 # ---------------------------------------------------------------------------
