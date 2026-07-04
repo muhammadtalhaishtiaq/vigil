@@ -1,0 +1,18 @@
+# Render blueprint — deploy Vigil as a single web service.
+# In the Render dashboard: New → Blueprint → point at this repo/branch,
+# then set AIML_API_KEY and NEWSAPI_KEY under Environment.
+services:
+  - type: web
+    name: vigil
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: AIML_API_KEY
+        sync: false          # set in dashboard — never committed
+      - key: NEWSAPI_KEY
+        sync: false          # set in dashboard — never committed
+      - key: SECRET_KEY
+        generateValue: true
