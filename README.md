@@ -1,201 +1,157 @@
-# ⚡ VIGIL — Autonomous Financial Risk Intelligence
+# ⚡ VIGIL — Multi-Agent Financial Risk Intelligence
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?style=flat&logo=streamlit)](https://nm285lam.run.complete.dev)
-[![Built on Complete.dev](https://img.shields.io/badge/Built%20on-Complete.dev-00e676?style=flat)](https://complete.dev)
-[![lablab.ai Hackathon](https://img.shields.io/badge/lablab.ai-Complete%20AI%20Agent%20Hackathon-blue?style=flat)](https://lablab.ai)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-single%20process-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Claude Agents](https://img.shields.io/badge/Agents-8%20×%20Claude-D97757?style=flat)](AGENTS.md)
+[![lablab.ai Hackathon](https://img.shields.io/badge/lablab.ai-Top%2010%20Finalist-blue?style=flat)](https://lablab.ai)
 [![MIT License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
+**8 specialized AI agents, orchestrated in waves inside a single process, turn live
+market data into a scored, tiered, actionable risk briefing — personalized to your
+company profile.**
+
+Born at the Complete AI Agent Hackathon on lablab.ai (**Top-10 finalist**), then
+rebuilt from a 9-service deployment into a clean single-process app you can run
+with one command.
+
+![Vigil dashboard](screenshots/02_dashboard.png)
+
 ---
 
-## What is Vigil?
+## What it does
 
-Vigil is an autonomous multi-agent financial risk intelligence platform that runs 8 specialized AI agents in parallel to deliver a complete risk briefing in under 90 seconds. It connects live market data (NewsAPI + yfinance) with an 8-agent Claude-powered pipeline to produce scored, tiered, actionable intelligence — personalized to your company profile. Built entirely on Complete.dev for the Complete AI Agent Hackathon on lablab.ai.
+**For founders & executives** — set up a company profile once (sector, stage,
+regulations, active decisions). Ask anything: *"How exposed are we this quarter?"*,
+*"Should I delay the raise?"*, *"What if the ECB hikes again?"* Vigil routes the
+question through its agent pipeline and returns a risk score (0–100), a tier
+(GREEN → DARK RED), the top 3 risks, and a prioritized action list.
 
----
+**For anyone** — no setup needed. Ask Market Oracle a plain-English investment
+question (*"Should I buy NASDAQ stocks right now?"*) and get a
+**BUY / WAIT / CAUTION / AVOID** perspective with the bull case, bear case, and a
+historical parallel.
 
-## Two Use Cases
-
-### 🏢 For Founders & Executives
-Set up a company profile once (sector, stage, regulations, decisions). Every query triggers a full risk briefing calibrated to your business — MiCA compliance windows, competitive shifts, macro headwinds, and a prioritized action playbook.
-
-### 💹 For Investors & Anyone
-No setup required. Ask Market Oracle any investment question in plain English: *"Should I buy NASDAQ stocks right now?"* Get a clear **BUY / WAIT / CAUTION / AVOID** verdict with bull case, bear case, historical parallel, and Vigil's take.
+> ⚠️ **Honest disclaimer:** Vigil's briefings are LLM-generated analysis grounded in
+> live market data — perspective to help you think, **not** certified financial
+> advice, and not a source of verified facts. Always validate before acting.
 
 ---
 
 ## Architecture
 
+One FastAPI process. No microservices, no message queue, no framework lock-in —
+the agents are prompts + a routing table, executed in dependency-ordered waves.
+
 ```
-                         ┌────────────────────────────────┐
-  User Query ───────────►│        ORCHESTRATOR             │
-                         │  Intent classification + route  │
-                         └─────────────┬──────────────────┘
-                                       │
-          ┌────────────────────────────┼─────────────────────────────┐
-          │                            │                             │
-          │ FULL_BRIEFING              │ INVESTMENT_QUERY            │ MARKET_PULSE
-          │ MACRO_FOCUS                │                             │
-          │ COMPETITIVE_FOCUS          │                             │
-          │ DECISION_SUPPORT           │                             │
-          │ SCENARIO                   │                             │
-          ▼                            ▼                             ▼
-  ┌───────────────────┐      ┌─────────────────────┐      ┌──────────────────┐
-  │ Signal Harvester  │      │  Signal Harvester   │      │ Signal Harvester │
-  │ Narrative Intel   │      │  (prices + VIX)     │      │ (brief pulse)    │
-  │ Macro Watchdog    │      │                     │      └──────────────────┘
-  │ Competitive Intel │      │  Market Oracle      │
-  │ Risk Synthesizer  │      │  BUY / WAIT /       │
-  │ Strategy Cmdr     │      │  CAUTION / AVOID    │
-  │ Market Oracle     │      └─────────────────────┘
-  └────────┬──────────┘
-           │
-           ▼
-  Risk Score 0–100 · Tier (Green/Yellow/Orange/Red/Black)
-  Top 3 Risks · 3 Priority Actions · Strategy Playbook
-  Verdict sentence · Specialist outputs for analysis tabs
+Browser ──► main.py (FastAPI, one port)
+               │  asyncio.to_thread
+               ▼
+        agent_pipeline.run_pipeline(message, profile, history)
+               │
+               ├─ 1. ORCHESTRATOR ── classifies intent (7 types), routes the waves
+               │
+               ├─ 2. Wave 1: SIGNAL HARVESTER ─── frames live data (yfinance + NewsAPI)
+               │
+               ├─ 3. Wave 2 (parallel, ThreadPoolExecutor):
+               │       NARRATIVE INTEL ∥ MACRO WATCHDOG ∥ COMPETITIVE INTEL
+               │
+               ├─ 4. Wave 3: RISK SYNTHESIZER ─── composite score 0–100 + tier + top risks
+               │
+               └─ 5. Wave 4: STRATEGY COMMANDER / MARKET ORACLE ── actions or verdict
+               
+        Result: score · tier · verdict · top 3 risks · 3 actions · full playbook
 ```
 
-**8 Agents · 7 Routing Intents · 2 Primary Paths**
+| Intent | Agents activated | Example query |
+|--------|-----------------|---------------|
+| `FULL_BRIEFING` | 7 (Wave 2 in parallel) | "Give me a complete risk briefing" |
+| `MACRO_FOCUS` | Signal, Macro, Synthesizer, Commander | "What's the macro outlook for us?" |
+| `COMPETITIVE_FOCUS` | Signal, Competitive, Synthesizer, Commander | "Competitive landscape?" |
+| `DECISION_SUPPORT` | Signal, Macro, Synthesizer, Commander | "Should I delay Series A?" |
+| `SCENARIO` | Signal, Macro, Synthesizer, Commander | "ECB rate hike scenario" |
+| `INVESTMENT_QUERY` | Signal, Oracle | "Should I buy gold?" |
+| `MARKET_PULSE` | Signal, Narrative, Synthesizer (brief) | "Quick market check" |
 
-| Intent | Agents Activated | Use Case |
-|--------|-----------------|----------|
-| `FULL_BRIEFING` | All 8 | "Give me a complete risk briefing" |
-| `MACRO_FOCUS` | Orchestrator, Signal, Macro, Risk | "What's the macro outlook?" |
-| `COMPETITIVE_FOCUS` | Orchestrator, Signal, Competitive, Risk | "Competitive landscape?" |
-| `DECISION_SUPPORT` | Orchestrator, Signal, Macro, Strategy, Risk | "Should I delay Series A?" |
-| `SCENARIO` | Orchestrator, Macro, Narrative, Risk, Strategy | "ECB rate hike scenario" |
-| `INVESTMENT_QUERY` | Orchestrator, Signal, Oracle | "Should I buy gold?" |
-| `MARKET_PULSE` | Orchestrator, Signal | "Quick market check" |
+The full agent reference (roles, prompts, activation matrix) is in [AGENTS.md](AGENTS.md).
+
+**Design principles:**
+- **The engine is a pure function** — `(message, profile, history) → result dict`.
+  No web framework, no session state inside it. `main.py` owns persistence.
+- **Provider-agnostic** — any OpenAI-compatible endpoint. Claude models by default
+  via AIML API; point `LLM_BASE_URL`/`LLM_API_KEY` anywhere.
+- **Honest degradation** — no API key? The app still boots, live market data still
+  flows, and chat says plainly that agents are unavailable. Vigil never fabricates
+  analysis.
 
 ---
 
-## Quick Start
+## Quick start
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/<your-username>/vigil.git
-cd vigil
-
-# 2. Set environment variables
-cp .env.example .env
-# Edit .env with your AIML_API_KEY and NEWSAPI_KEY
-
-# 3. Install and run
+git clone https://github.com/muhammadtalhaishtiaq/vigil.git && cd vigil
 pip install -r requirements.txt
-streamlit run app.py
+cp .env.example .env        # add your keys (see below)
+uvicorn main:app --port 3000
 ```
 
-App opens at **http://localhost:8501**
+Open **http://localhost:3000** — that's the whole deployment.
+
+### Environment variables
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `AIML_API_KEY` | For agent analysis | [aimlapi.com](https://aimlapi.com) — free tier available |
+| `LLM_BASE_URL` + `LLM_API_KEY` | Alternative to the above | Any OpenAI-compatible endpoint |
+| `VIGIL_MODEL` | No | Force one model for all 8 agents |
+| `NEWSAPI_KEY` | For live headlines | [newsapi.org](https://newsapi.org/register) — free tier: 100 req/day |
+| `SECRET_KEY` | No | Session-cookie signing (ephemeral if unset) |
+
+yfinance market data (prices, VIX, sectors) needs **no key**.
+
+### Health check
+
+```bash
+python health_check.py        # verifies NewsAPI, yfinance, LLM endpoint
+curl localhost:3000/health    # runtime status incl. key configuration
+```
 
 ---
 
-## Environment Variables
-
-| Variable | Required | Where to get it |
-|----------|----------|-----------------|
-| `AIML_API_KEY` | ✅ Yes | [aimlapi.com](https://aimlapi.com) — free tier available |
-| `NEWSAPI_KEY` | ✅ Yes | [newsapi.org/register](https://newsapi.org/register) — free tier: 100 req/day |
-| `NEWSAPI_KEY` yfinance | ❌ No key needed | Uses Yahoo Finance public feeds automatically |
-
-For Streamlit Cloud deployment, add both keys via **Settings → Secrets** (not `.env`).
-
----
-
-## The 8 Agents
-
-| # | Agent | Role | Input | Output | Active for |
-|---|-------|------|-------|--------|------------|
-| 1 | **Orchestrator** | Master router + synthesizer | User query + full context | Intent type + initial synthesis | All intents |
-| 2 | **Signal Harvester** | Live market data collector | Live prices, VIX, sector data | Structured market signals | All intents |
-| 3 | **Narrative Intel** | Hidden signal detector | News headlines + sentiment | Early warning signals from narrative | FULL_BRIEFING, SCENARIO |
-| 4 | **Macro Watchdog** | Macro environment analyst | Macro indicators + sector data | Business impact of macro trends | FULL_BRIEFING, MACRO_FOCUS, DECISION_SUPPORT, SCENARIO |
-| 5 | **Competitive Intel** | Competitive landscape tracker | Market data + headlines | Competitor positioning & shifts | FULL_BRIEFING, COMPETITIVE_FOCUS |
-| 6 | **Risk Synthesizer** | Risk scorer & prioritizer | All specialist outputs | 0–100 score, tier, top 3 risks, 3 actions | FULL_BRIEFING + briefing intents |
-| 7 | **Strategy Commander** | Action playbook generator | Risk synthesis + profile | Prioritized 3-action playbook | FULL_BRIEFING, DECISION_SUPPORT |
-| 8 | **Market Oracle** | Investment verdict engine | Live market data + query | BUY/WAIT/CAUTION/AVOID + bull/bear/take | INVESTMENT_QUERY, FULL_BRIEFING |
-
-**Idle for `INVESTMENT_QUERY`:** Narrative Intel, Macro Watchdog, Competitive Intel, Risk Synthesizer, Strategy Commander
-
-**Idle for `MARKET_PULSE`:** Narrative Intel, Macro Watchdog, Competitive Intel, Risk Synthesizer, Strategy Commander, Market Oracle
-
----
-
-## Tech Stack
-
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Frontend | Streamlit 1.35+ | Multi-page dashboard |
-| UI Design | Pure CSS (DM Mono + Cabinet Grotesk) | Bloomberg-meets-Vercel dark theme |
-| AI Agents | AIML API (OpenAI-compatible) | Claude claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
-| Market Data | yfinance | Real-time prices, VIX, sector ETFs |
-| News | NewsAPI.org | Live financial headlines + sentiment |
-| State | Streamlit session_state | Profile, conversation, agent statuses |
-| Config | python-dotenv + st.secrets | Local `.env` + Streamlit Cloud secrets |
-| Deployment | Streamlit Cloud | Zero-infra public deployment |
-
----
-
-## Project Structure
+## Project structure
 
 ```
 vigil/
-├── app.py                      # Main dashboard (Streamlit multi-page root)
-├── agent_pipeline.py           # 8-agent orchestration engine
-├── session_manager.py          # Profile CRUD + conversation state
-├── data_layer.py               # Live data (NewsAPI + yfinance, 60s cache)
-│
-├── pages/
-│   └── profile.py              # Company profile setup (4-section form)
-│
-├── prompts/                    # System prompt templates for all 8 agents
-│   ├── orchestrator.txt
-│   ├── signal_harvester.txt
-│   ├── narrative_intel.txt
-│   ├── macro_watchdog.txt
-│   ├── competitive_intel.txt
-│   ├── risk_synthesizer.txt
-│   ├── strategy_commander.txt
-│   └── market_oracle.txt
-│
-├── .streamlit/
-│   ├── config.toml             # Dark theme + server config
-│   └── secrets.toml.example    # Secret keys template
-│
-├── vigil-landing.html          # Standalone marketing landing page
-│
-├── requirements.txt            # Python dependencies
-├── .env.example                # Environment variable template
-├── .gitignore                  # Git ignore (secrets, __pycache__, logs)
-├── health_check.py             # Pre-deploy API connectivity check
-│
-├── README.md                   # This file
-├── LICENSE                     # MIT License
-├── AGENTS.md                   # All 8 agents documented
-├── CONTRIBUTING.md             # Contribution guide
-├── INTEGRATION_CHECKLIST.md    # 9-point integration test checklist
-├── INTEGRATION_TESTS.md        # Extended test scenarios
-└── STREAMLIT_DEPLOY.md         # Step-by-step cloud deployment guide
+├── main.py               # FastAPI app — pages, session APIs, runs the engine
+├── agent_pipeline.py     # The 8-agent engine (pure function, wave orchestration)
+├── data_layer.py         # Live market data: yfinance + NewsAPI, 60s cache
+├── session_store.py      # JSON-backed session persistence (gitignored at runtime)
+├── prompts/              # One system prompt per agent (8 files)
+├── static/ + vigil-*.html# Vanilla JS/CSS frontend — no build step
+├── docs/REVAMP_PLAN.md   # The audit + rebuild plan this repo followed
+├── AGENTS.md             # Full agent documentation
+└── health_check.py       # Pre-flight connectivity check
 ```
 
 ---
 
-## Running the Health Check
+## Known limitations
 
-Before deploying, verify all external API connections:
+- **NewsAPI free tier** caps at 100 requests/day — headlines degrade gracefully to
+  cached/absent beyond that.
+- **Risk scores are model-generated estimates**, not calibrated probabilities. The
+  next planned iteration grounds every risk in cited sources.
+- Session auth is cookie-based without login — built for single-user/demo use.
 
-```bash
-python health_check.py
-# Expected output:
-# ✓ PASS  NewsAPI    — HTTP 200 · N results
-# ✓ PASS  yfinance   — ^VIX = XX.XX
-# ✓ PASS  AIML API   — response: 'OK'
-# All 3/3 checks passed — safe to deploy ✓
-```
+## From hackathon to here
 
----
+The hackathon version ran 8 agents as separate FastAPI microservices on 9 ports.
+This repo is the deliberate rebuild: same agent design, collapsed into one process,
+fake demo fallbacks removed, claims aligned with code. The full audit and the
+decision log live in [docs/REVAMP_PLAN.md](docs/REVAMP_PLAN.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Free to use, modify, and distribute with attribution.
+MIT — see [LICENSE](LICENSE).
 
-Built for the **Complete AI Agent Hackathon** on [lablab.ai](https://lablab.ai) · February 2026.
+Built by [Muhammad Talha](https://github.com/muhammadtalhaishtiaq) ·
+Top-10 finalist, Complete AI Agent Hackathon on [lablab.ai](https://lablab.ai)

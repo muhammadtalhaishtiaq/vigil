@@ -4,15 +4,15 @@ agent_pipeline.py — Vigil Intelligence Engine
 Orchestrates all 8 Vigil agents through intent-based routing.
 
 Flow:
-  user_message
+  run_pipeline(user_message, profile, history)
     → STEP 1: assemble full context (profile + history + live data)
     → STEP 2: Orchestrator (intent classification + initial synthesis)
     → STEP 3: specialist agents dispatched per intent routing table
-    → STEP 4: structured result dict assembled
-    → STEP 5: persisted to session memory + session_manager
+              (FULL_BRIEFING Wave 2 runs 3 agents in parallel)
+    → STEP 4: structured result dict returned — caller owns persistence
 
-AIML API is OpenAI-compatible — uses openai.OpenAI client
-pointed at https://api.aimlapi.com/v1.
+Framework-free engine: no Streamlit, no FastAPI, no HTTP between agents.
+LLM access via any OpenAI-compatible endpoint (default: AIML API).
 """
 
 import os
@@ -25,13 +25,11 @@ from datetime import datetime, timezone
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import streamlit as st
 from openai import OpenAI
 
-import session_manager
 from data_layer import get_all_live_data
 
-# Load .env for local development (no-op in Streamlit Cloud)
+# Load .env for local development
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -49,37 +47,36 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Secret resolution: st.secrets (cloud) → os.getenv (local .env)
+# Secret resolution (env / .env)
 # ---------------------------------------------------------------------------
 def _get_secret(key: str, default: str = "") -> str:
-    """Read a secret from Streamlit Cloud secrets first, then env var."""
-    try:
-        val = st.secrets.get(key, "")
-        if val:
-            return str(val)
-    except Exception:
-        pass
+    """Read a secret from the environment (.env is loaded above)."""
     return os.getenv(key, default)
 
 # ---------------------------------------------------------------------------
-# AIML Client  (OpenAI-compatible, lazy singleton)
+# LLM client (OpenAI-compatible, lazy singleton)
+#
+# Provider-agnostic: any OpenAI-compatible endpoint works.
+#   LLM_BASE_URL — default https://api.aimlapi.com/v1
+#   LLM_API_KEY  — falls back to AIML_API_KEY, then OPENAI_API_KEY
 # ---------------------------------------------------------------------------
 _client: Optional[OpenAI] = None
 
 
 def _get_client() -> OpenAI:
-    """
-    Lazily initialise and return the AIML API client.
-    Equivalent to: AIML.AIML(api_key=os.getenv("AIML_API_KEY"))
-    """
+    """Lazily initialise and return the OpenAI-compatible LLM client."""
     global _client
     if _client is None:
-        api_key = _get_secret("AIML_API_KEY")
+        api_key = (
+            _get_secret("LLM_API_KEY")
+            or _get_secret("AIML_API_KEY")
+            or _get_secret("OPENAI_API_KEY")
+        )
         if not api_key:
-            logger.warning("AIML_API_KEY not set — agent calls will fail")
+            logger.warning("No LLM API key set (LLM_API_KEY / AIML_API_KEY) — agent calls will fail")
         _client = OpenAI(
             api_key=api_key,
-            base_url="https://api.aimlapi.com/v1",
+            base_url=_get_secret("LLM_BASE_URL", "https://api.aimlapi.com/v1"),
         )
     return _client
 
@@ -97,6 +94,14 @@ _MODEL_MAP: dict[str, str] = {
     "strategy_commander": "claude-sonnet-4-6",
     "market_oracle":      "claude-haiku-4-5-20251001",
 }
+
+
+def _model_for(agent_name: str) -> str:
+    """Resolve the model for an agent. VIGIL_MODEL env var overrides all agents."""
+    override = _get_secret("VIGIL_MODEL")
+    if override:
+        return override
+    return _MODEL_MAP.get(agent_name, "claude-sonnet-4-6")
 
 # All 8 agent names in pipeline order
 _ALL_AGENTS: list[str] = list(_MODEL_MAP.keys())
@@ -156,6 +161,19 @@ def invalidate_prompt_cache() -> None:
 
 _VALID_STATUSES = {"idle", "queued", "running", "complete", "error"}
 
+# Module-level status registry — the UI layer reads these (or subscribes via
+# set_status_listener) to render the agent flow visualisation.
+AGENT_STATUSES: dict[str, str] = {a: "idle" for a in _ALL_AGENTS}
+AGENT_ELAPSED: dict[str, Optional[float]] = {a: None for a in _ALL_AGENTS}
+
+_status_listener = None
+
+
+def set_status_listener(callback) -> None:
+    """Register a callable(agent_name, status, elapsed) invoked on every status change."""
+    global _status_listener
+    _status_listener = callback
+
 
 def update_agent_status(
     agent_name: str,
@@ -163,28 +181,20 @@ def update_agent_status(
     elapsed: Optional[float] = None,
 ) -> None:
     """
-    Update the per-agent status and elapsed time in Streamlit session state.
+    Update the per-agent status and elapsed time.
 
     Args:
         agent_name: One of the 8 Vigil agent identifiers.
         status:     One of "idle" | "queued" | "running" | "complete" | "error"
         elapsed:    Seconds the agent took to complete (optional).
-
-    The UI reads these keys to render the agent flow visualisation.
     """
     if status not in _VALID_STATUSES:
         logger.warning("Invalid status '%s' for agent '%s' — ignored", status, agent_name)
         return
 
-    # Defensive initialisation — in case init_conversation() wasn't called yet
-    if "agent_statuses" not in st.session_state:
-        st.session_state["agent_statuses"] = {a: "idle" for a in _ALL_AGENTS}
-    if "agent_elapsed" not in st.session_state:
-        st.session_state["agent_elapsed"] = {a: None for a in _ALL_AGENTS}
-
-    st.session_state["agent_statuses"][agent_name] = status
+    AGENT_STATUSES[agent_name] = status
     if elapsed is not None:
-        st.session_state["agent_elapsed"][agent_name] = round(elapsed, 2)
+        AGENT_ELAPSED[agent_name] = round(elapsed, 2)
 
     logger.debug(
         "Agent status: %s → %s%s",
@@ -192,13 +202,11 @@ def update_agent_status(
         f" ({elapsed:.2f}s)" if elapsed is not None else "",
     )
 
-    # Attempt real-time header refresh via callback registered by app.py
-    try:
-        cb = st.session_state.get("_vigil_header_cb")
-        if callable(cb):
-            cb()
-    except Exception:
-        pass  # Never crash the pipeline over a UI refresh failure
+    if callable(_status_listener):
+        try:
+            _status_listener(agent_name, status, elapsed)
+        except Exception:
+            pass  # Never crash the pipeline over a UI notification failure
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +239,7 @@ def run_agent(
 
     try:
         client = _get_client()
-        model = _MODEL_MAP.get(agent_name, "claude-sonnet-4-6")
+        model = _model_for(agent_name)
 
         messages = []
         if system_prompt:
@@ -600,6 +608,64 @@ def _reset_pipeline_statuses() -> None:
         update_agent_status(agent, "idle")
 
 
+def _profile_field(profile: dict, *keys: str, fallback: str = "Not specified") -> str:
+    """Return the first non-empty profile value among keys (list values joined)."""
+    for key in keys:
+        val = profile.get(key)
+        if isinstance(val, list) and val:
+            return ", ".join(str(v) for v in val)
+        if val and str(val).strip():
+            return str(val).strip()
+    return fallback
+
+
+def has_sufficient_profile(profile: Optional[dict]) -> bool:
+    """A profile is usable when it names the company and states what it does."""
+    if not isinstance(profile, dict):
+        return False
+    name = _profile_field(profile, "company_name", "name", fallback="")
+    desc = _profile_field(profile, "description", fallback="")
+    return bool(name and desc)
+
+
+def get_profile_context_string(profile: Optional[dict]) -> str:
+    """
+    Format a company profile as a clean text block suitable for
+    prepending to LLM agent prompts. Empty string when no profile.
+    """
+    if not isinstance(profile, dict) or not profile:
+        return ""
+
+    f = lambda *keys: _profile_field(profile, *keys)
+    lines = [
+        "[COMPANY PROFILE — VIGIL CONTEXT]",
+        f"Company: {f('company_name', 'name')} | Sector: {f('sector', 'industry')}"
+        + (f" / {f('sub_sector')}" if profile.get("sub_sector") else ""),
+        f"Location: {f('country', 'location')} | ARR: {f('arr', 'arr_range')} "
+        f"| Stage: {f('stage', 'funding_stage')} | Runway: {f('runway')}",
+        f"WHAT THEY DO: {f('description')}",
+        f"CURRENT DECISIONS: {f('current_decisions')}",
+        f"KEY RISK EXPOSURES: {f('risk_areas')}",
+        f"ACTIVE REGULATIONS: {f('regulations')}",
+        "[END PROFILE]",
+    ]
+    return "\n".join(lines)
+
+
+def _history_context_string(history: Optional[list], last_n: int = 6) -> str:
+    """Format recent conversation turns for agent context (empty if no history)."""
+    if not history:
+        return ""
+    lines = ["[RECENT CONVERSATION]"]
+    for msg in history[-last_n:]:
+        role = str(msg.get("role", "user")).upper()
+        content = str(msg.get("content", "")).strip()
+        if content:
+            lines.append(f"{role}: {content[:500]}")
+    lines.append("[END CONVERSATION]")
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
 def _build_business_context(
     profile: Optional[dict],
     user_message: str,
@@ -608,8 +674,8 @@ def _build_business_context(
     Return the best available business context string for specialist inputs.
     Prefers the formatted profile block; falls back to the raw user message.
     """
-    if profile and session_manager.has_sufficient_profile():
-        return session_manager.get_profile_context_string()
+    if has_sufficient_profile(profile):
+        return get_profile_context_string(profile)
     return f"USER QUERY (infer business context from this message):\n{user_message}"
 
 
@@ -700,7 +766,11 @@ def _format_live_data_as_text(live_data: dict) -> str:
 # MAIN FUNCTION: run_pipeline
 # ---------------------------------------------------------------------------
 
-def run_pipeline(user_message: str) -> dict:
+def run_pipeline(
+    user_message: str,
+    profile: Optional[dict] = None,
+    history: Optional[list] = None,
+) -> dict:
     """
     Execute the full Vigil intelligence pipeline for a user message.
 
@@ -708,22 +778,28 @@ def run_pipeline(user_message: str) -> dict:
     STEP 2 — ORCHESTRATOR: classify intent + initial synthesis
     STEP 3 — ROUTE:       dispatch specialist agents per intent
     STEP 4 — BUILD RESULT: merge all outputs into structured dict
-    STEP 5 — SAVE:        persist to session_manager memory
 
     Args:
         user_message: Raw natural language input from the user.
+        profile:      Company profile dict (optional — generic mode without it).
+        history:      Recent conversation as [{"role", "content"}, ...] (optional).
 
     Returns:
         Structured result dict with all pipeline outputs and metadata.
+        The caller owns persistence (session store, conversation history).
     """
     pipeline_start = time.perf_counter()
     _reset_pipeline_statuses()
 
     # ── STEP 1: PREPARE ──────────────────────────────────────────────────────
-    full_context = session_manager.get_full_context_for_agent()
-    enhanced_message = session_manager.enhance_query_with_context(user_message)
-    profile = session_manager.load_profile()
-    profile_was_used = session_manager.has_sufficient_profile()
+    profile_was_used = has_sufficient_profile(profile)
+    full_context = "\n\n".join(
+        part for part in [
+            get_profile_context_string(profile) if profile_was_used else "",
+            _history_context_string(history),
+        ] if part
+    )
+    enhanced_message = user_message
 
     live_data: dict = {}
     live_data_text = ""
@@ -1117,43 +1193,11 @@ def run_pipeline(user_message: str) -> dict:
         "primary_response":    primary_response,
     }
 
-    # ── STEP 5: SAVE TO MEMORY ────────────────────────────────────────────────
-    # Persist structured fields only for full-risk-analysis intents.
-    # INVESTMENT_QUERY (Oracle) and MARKET_PULSE (brief) do not repaint the strip.
-    if intent_type in _STRIP_UPDATE_INTENTS:
-        if result["top_risks"]:
-            st.session_state["vigil_last_top_risks"] = result["top_risks"]
-        if result["top_actions"]:
-            st.session_state["vigil_last_top_actions"] = result["top_actions"]
-        if result["verdict"]:
-            st.session_state["vigil_last_verdict"] = result["verdict"]
-        if result["risk_tier"]:
-            st.session_state["vigil_last_risk_tier"] = result["risk_tier"]
-        if result["risk_score"] is not None:
-            st.session_state["vigil_last_risk_score"] = result["risk_score"]
-        if result.get("score_breakdown"):
-            st.session_state["vigil_last_score_breakdown"] = result["score_breakdown"]
-    else:
-        logger.debug(
-            "Strip persistence skipped for intent '%s' — Oracle/pulse mode preserves previous state",
-            intent_type,
-        )
-
-    # Persist to conversation history via session_manager
-    session_manager.add_message("user", user_message)
-    session_manager.add_message(
-        "vigil",
-        result["verdict"] or primary_response,
-        {
-            "agents_used":  result["agents_activated"],
-            "risk_score":   result["risk_score"],
-            "intent_type":  result["intent_type"],
-            "top_risks":    result["top_risks"],
-            "top_actions":  result["top_actions"],
-            "verdict":      result["verdict"],
-            "risk_tier":    result["risk_tier"],
-        },
-    )
+    # Persistence is the caller's responsibility (see main.py) — the engine
+    # stays a pure function: (message, profile, history) → result dict.
+    # STRIP_UPDATE_INTENTS tells callers which intents should repaint the
+    # dashboard risk strip; Oracle/pulse runs preserve previous state.
+    result["updates_risk_strip"] = intent_type in _STRIP_UPDATE_INTENTS
 
     logger.info(
         "Pipeline complete — intent: %s | agents: %d | risk_score: %s | time: %.2fs",

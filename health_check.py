@@ -1,7 +1,7 @@
 """
 health_check.py — Vigil Pre-Deployment Health Check
 =====================================================
-Run this before pushing to Streamlit Cloud to verify all three external
+Run this before deploying to verify all three external
 dependencies are reachable and returning valid data.
 
 Usage:
@@ -48,7 +48,7 @@ def _info(msg: str) -> None:
 
 # ── Secret helper (mirrors app logic) ──────────────────────────────────────
 def _get_secret(key: str) -> str:
-    """Read from env (health_check always runs outside Streamlit)."""
+    """Read a secret from the environment (.env is loaded above)."""
     return os.getenv(key, "")
 
 
@@ -115,16 +115,18 @@ def check_yfinance() -> bool:
 # CHECK 3 — AIML API (1-token ping)
 # =============================================================================
 def check_aiml_api() -> bool:
-    api_key = _get_secret("AIML_API_KEY")
+    api_key = (_get_secret("LLM_API_KEY") or _get_secret("AIML_API_KEY")
+               or _get_secret("OPENAI_API_KEY"))
     if not api_key:
-        _fail("AIML API", "AIML_API_KEY not set in environment / .env")
+        _fail("LLM API", "No LLM key set (LLM_API_KEY / AIML_API_KEY) in environment / .env")
         return False
 
     _info("Sending 1-token ping to AIML API (claude-haiku-4-5-20251001)…")
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_key, base_url="https://api.aimlapi.com/v1")
+        client = OpenAI(api_key=api_key,
+                        base_url=_get_secret("LLM_BASE_URL", "https://api.aimlapi.com/v1"))
         t0 = time.time()
         resp = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
@@ -169,7 +171,7 @@ def main() -> int:
     else:
         failed_list = [k for k, v in results.items() if not v]
         print(f"{_RED}{_BOLD}{total - passed}/{total} check(s) failed: {', '.join(failed_list)}{_RESET}")
-        print(f"{_YELLOW}Fix the issues above before deploying to Streamlit Cloud.{_RESET}")
+        print(f"{_YELLOW}Fix the issues above before deploying.{_RESET}")
         return 1
 
 

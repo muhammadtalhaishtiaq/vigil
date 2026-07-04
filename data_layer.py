@@ -13,7 +13,7 @@ from typing import Optional
 import requests
 import yfinance as yf
 
-# Load .env for local development (no-op in Streamlit Cloud)
+# Load .env for local development
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -31,17 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Secret resolution: st.secrets (cloud) → os.getenv (local .env)
+# Secret resolution (env / .env)
 # ---------------------------------------------------------------------------
 def _get_secret(key: str, default: str = "") -> str:
-    """Read a secret from Streamlit Cloud secrets first, then env var."""
-    try:
-        import streamlit as st          # type: ignore
-        val = st.secrets.get(key, "")
-        if val:
-            return str(val)
-    except Exception:
-        pass
+    """Read a secret from the environment (.env is loaded at startup)."""
     return os.getenv(key, default)
 
 # ---------------------------------------------------------------------------
@@ -548,7 +541,7 @@ def get_all_live_data(sector: str = "finance") -> dict:
     """
     Master aggregator that combines all three live data sources into a
     single structured payload. Results are cached for 60 seconds to
-    avoid hammering external APIs on rapid Streamlit reruns.
+    avoid hammering external APIs on rapid repeated requests.
 
     Args:
         sector: Sector label passed through to get_live_headlines().

@@ -1,27 +1,24 @@
 """
-main.py — Vigil FastAPI Gateway
-Replaces Streamlit with FastAPI for complete.dev deployment.
-Serves HTML pages, manages sessions, and orchestrates agent calls.
+main.py — Vigil FastAPI App (single process)
+Serves the HTML frontend, manages sessions, and runs the 8-agent
+intelligence engine (agent_pipeline.py) in-process — no microservices.
 """
 import os
 import uuid
-import json
+import secrets
 import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional
-from concurrent.futures import ThreadPoolExecutor
 
-import requests
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 
-# Import existing modules
+from agent_pipeline import run_pipeline, set_status_listener
 from data_layer import (
     get_all_live_data,
     get_market_pulse as fetch_market_pulse,
@@ -46,17 +43,12 @@ app = FastAPI(
     description="Autonomous financial risk intelligence powered by 8 AI agents"
 )
 
-# Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Middleware — frontend is served same-origin, so no CORS needed.
+# SECRET_KEY signs the session cookie; without one set, an ephemeral key is
+# generated (sessions reset on restart — fine for local/demo use).
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("SECRET_KEY", "vigil-secret-change-in-production")
+    secret_key=os.getenv("SECRET_KEY") or secrets.token_hex(32)
 )
 
 # Mount static files (CSS, JS, images, etc.)
@@ -66,9 +58,6 @@ if static_path.exists():
     logger.info(f"Static files mounted from: {static_path}")
 else:
     logger.warning(f"Static directory not found at {static_path}")
-
-# Agent URLs (environment variables for complete.dev deployment)
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:3001/chat")
 
 # Session store with file persistence
 SESSIONS = SESSION_STORE.sessions
@@ -91,6 +80,7 @@ def _ensure_session_defaults(session: dict) -> dict:
     session.setdefault("last_verdict", None)
     session.setdefault("last_top_risks", [])
     session.setdefault("last_top_actions", [])
+    session.setdefault("last_score_breakdown", {})
     session.setdefault("last_playbook", None)
     session.setdefault("last_oracle_output", None)
     session.setdefault("agent_statuses", {
@@ -150,40 +140,6 @@ def _normalize_profile(profile: Optional[dict]) -> dict:
         normalized["funding_stage"] = normalized.get("stage")
     return normalized
 
-
-def _format_profile_summary(profile: dict) -> str:
-    """Build a compact, human-readable profile summary for LLM prompts."""
-    if not isinstance(profile, dict) or not profile:
-        return ""
-    parts = []
-    name = profile.get("company_name")
-    if name:
-        parts.append(f"Company: {name}")
-    industry = profile.get("industry") or profile.get("sector")
-    if industry:
-        parts.append(f"Industry: {industry}")
-    stage = profile.get("funding_stage") or profile.get("stage")
-    if stage:
-        parts.append(f"Stage: {stage}")
-    arr = profile.get("arr_range") or profile.get("arr")
-    if arr:
-        parts.append(f"ARR: {arr}")
-    runway = profile.get("runway")
-    if runway:
-        parts.append(f"Runway: {runway}")
-    employees = profile.get("employees") or profile.get("team_size")
-    if employees:
-        parts.append(f"Team size: {employees}")
-    location = profile.get("location") or profile.get("country")
-    if location:
-        parts.append(f"Location: {location}")
-    market = profile.get("primary_market")
-    if market:
-        parts.append(f"Primary market: {market}")
-    description = profile.get("description")
-    if description:
-        parts.append(f"Description: {description}")
-    return " | ".join(parts)
 
 def _extract_clean_verdict(raw_message: str) -> str:
     """
@@ -272,7 +228,9 @@ def _extract_clean_verdict(raw_message: str) -> str:
                 result = part.strip() + "."
                 break
     
-    return result if result else "Analysis complete. Briefing processed."
+    return result if result else (
+        "Couldn't extract a summary from this analysis — open the full playbook for the complete output."
+    )
 
 def init_session(session_id: str) -> dict:
     """Initialize a new session with default values (like st.session_state)"""
@@ -521,69 +479,56 @@ async def analyze_intelligence(request: Request):
         _cache_dashboard_block(session, "intelligence", payload)
         return payload
 
-    profile = session.get("profile") or {}
-    company_name = profile.get("company_name")
-    payload = {
-        "risk_score": 72,
-        "tier": "ORANGE",
-        "direction": "↑ WORSENING",
-        "summary_text": f"{company_name} faces 68% risk exposure — planning window open for ~45 days before conditions reset.",
-        "risks": [
-            {
-                "name": "MiCA Compliance Squeeze",
-                "probability": 88,
-                "severity": "HIGH",
-                "horizon": "45 days",
-                "detail": "EU AI trading platforms face MiCA Article 63 compliance requirements effective Q2 2026. Filing now takes 90 days to process — a €40–80K compliance sprint is needed immediately."
-            },
-            {
-                "name": "AI Valuation Compression",
-                "probability": 71,
-                "severity": "HIGH",
-                "horizon": "30–60 days",
-                "detail": "Institutional rotation out of AI stocks is compressing multiples. For your next funding round, expect a 25–40% discount vs 2024 benchmarks if you wait beyond 45 days."
-            },
-            {
-                "name": "EUR/USD FX Volatility",
-                "probability": 55,
-                "severity": "MEDIUM",
-                "horizon": "This quarter",
-                "detail": "ECB dovish pivot diverging from Fed tightening creates EUR/USD volatility. If revenue is USD-denominated but ops are EUR-based, 8–12% margin compression is likely this quarter."
-            }
-        ],
-        "actions": [
-            {
-                "name": "Engage MiCA Compliance Counsel",
-                "owner": "CEO + CLO",
-                "deadline": "Thu Feb 27",
-                "priority": "URGENT",
-                "detail": "Pre-filing for AI Trading Operator category under MiCA Article 63 has a 90-day processing window. Starting after March means operating in a grey zone during Q3 when enforcement begins. Act this week."
-            },
-            {
-                "name": "Lock Investor Terms Before Reset",
-                "owner": "CEO + CFO",
-                "deadline": "2 weeks",
-                "priority": "HIGH",
-                "detail": "Institutional AI allocation is rotating. Your current traction metrics support a premium multiple now. In 45 days, comparables will have repriced downward. Move on term sheets immediately."
-            },
-            {
-                "name": "Hedge EUR/USD on Q1 Revenue",
-                "owner": "CFO",
-                "deadline": "Mar 1",
-                "priority": "HIGH",
-                "detail": "If revenue is USD-denominated: convert and lock 60–70% of Q1 proceeds to EUR now. FX volatility window opens post-March ECB meeting — hedging before then is optimal."
-            }
-        ]
-    }
+    # Serve the REAL last pipeline analysis — never fabricated numbers.
+    if session.get("last_risk_score") is None:
+        payload = {
+            "requires_briefing": True,
+            "risk_score": None,
+            "tier": "NO_ANALYSIS",
+            "direction": "—",
+            "summary_text": "No analysis yet — ask Vigil for a risk briefing in the chat to generate live intelligence.",
+            "risks": [],
+            "actions": [],
+            "oracle_output": session.get("last_oracle_output")
+        }
+        _cache_dashboard_block(session, "intelligence", payload)
+        return payload
 
-    session["last_risk_score"] = payload["risk_score"]
-    session["last_risk_tier"] = payload["tier"]
-    session["last_verdict"] = payload["summary_text"]
-    session["last_top_risks"] = payload["risks"][:3]
-    session["last_top_actions"] = payload["actions"][:3]
+    payload = {
+        "risk_score": session.get("last_risk_score"),
+        "tier": session.get("last_risk_tier") or "—",
+        "direction": "—",
+        "summary_text": session.get("last_verdict")
+                        or "Latest briefing available in chat.",
+        "risks": [_risk_to_ui(r) for r in (session.get("last_top_risks") or [])[:3]],
+        "actions": [_action_to_ui(a) for a in (session.get("last_top_actions") or [])[:3]],
+        "oracle_output": session.get("last_oracle_output")
+    }
     _cache_dashboard_block(session, "intelligence", payload)
 
     return payload
+
+
+def _risk_to_ui(risk: dict) -> dict:
+    """Map an engine risk dict to the dashboard's display shape."""
+    return {
+        "name": risk.get("name", "Unnamed risk"),
+        "probability": risk.get("probability", 50),
+        "severity": risk.get("severity", "MEDIUM"),
+        "horizon": risk.get("timeline") or risk.get("horizon") or "—",
+        "detail": risk.get("detail", "")
+    }
+
+
+def _action_to_ui(action: dict) -> dict:
+    """Map an engine action dict to the dashboard's display shape."""
+    return {
+        "name": action.get("title") or action.get("name", "Unnamed action"),
+        "owner": action.get("owner", "Leadership"),
+        "deadline": action.get("deadline", "—"),
+        "priority": action.get("urgency") or action.get("priority", "HIGH"),
+        "detail": action.get("detail", "")
+    }
 
 
 @app.get("/api/scores/breakdown")
@@ -602,11 +547,33 @@ async def get_scores_breakdown(request: Request):
         _cache_dashboard_block(session, "scores", payload)
         return payload
 
+    # Serve the REAL breakdown parsed from the last Risk Synthesizer run.
+    breakdown = session.get("last_score_breakdown") or {}
+    if not breakdown:
+        payload = {
+            "requires_briefing": True,
+            "macro": {"score": 0, "label": "Macro", "status": "not_available"},
+            "narrative": {"score": 0, "label": "Narrative", "status": "not_available"},
+            "market": {"score": 0, "label": "Market", "status": "not_available"},
+            "competitive": {"score": 0, "label": "Competitive", "status": "not_available"}
+        }
+        _cache_dashboard_block(session, "scores", payload)
+        return payload
+
+    def _band(score: int) -> str:
+        if score >= 75:
+            return "high_risk"
+        if score >= 50:
+            return "medium_risk"
+        return "low_risk"
+
     payload = {
-        "macro": {"score": 78, "label": "Macro", "status": "high_risk"},
-        "narrative": {"score": 70, "label": "Narrative", "status": "medium_risk"},
-        "market": {"score": 65, "label": "Market", "status": "medium_risk"},
-        "competitive": {"score": 60, "label": "Competitive", "status": "medium_risk"}
+        key: {
+            "score": breakdown.get(key, 0),
+            "label": key.capitalize(),
+            "status": _band(breakdown.get(key, 0)) if key in breakdown else "not_available"
+        }
+        for key in ("macro", "narrative", "market", "competitive")
     }
     _cache_dashboard_block(session, "scores", payload)
     return payload
@@ -616,35 +583,44 @@ async def get_scores_breakdown(request: Request):
 async def get_market_pulse_api(request: Request):
     """Get LIVE market indicators from data_layer"""
     session = get_session(request)
+
+    def _fmt(value, spec: str) -> str:
+        """Format a numeric value, or an honest em-dash when data is missing."""
+        return format(value, spec) if value is not None else "—"
+
     try:
         pulse = fetch_market_pulse()
-        
-        # Map data_layer format to dashboard format
+        vix = pulse.get("vix", {})
+        spx = pulse.get("spx", {})
+        tnx = pulse.get("treasury_10y", {})
+        gold = pulse.get("gold", {})
+
         payload = {
             "vix": {
-                "value": pulse.get("vix", {}).get("value"),
+                "value": vix.get("value"),
                 "label": "VIX",
-                "status": pulse.get("vix", {}).get("signal", "FLAT").lower(),
-                "formatted": f"{pulse.get('vix', {}).get('value', 0):.1f}"
+                "status": (vix.get("level") or "neutral").lower(),
+                "formatted": _fmt(vix.get("value"), ".1f")
             },
             "yield_10y": {
-                "value": pulse.get("yield_10y", {}).get("value"),
+                "value": tnx.get("yield_pct"),
                 "label": "10Y Yield",
-                "status": "neutral",
-                "formatted": f"{pulse.get('yield_10y', {}).get('value', 0):.2f}%"
+                "status": (tnx.get("signal") or "neutral").lower(),
+                "formatted": _fmt(tnx.get("yield_pct"), ".2f") + ("%" if tnx.get("yield_pct") is not None else "")
             },
             "sp500_7d": {
-                "value": pulse.get("sp500", {}).get("pct_7d"),
+                "value": spx.get("pct_7d"),
                 "label": "S&P 7D",
-                "status": pulse.get("sp500", {}).get("signal", "FLAT").lower(),
-                "formatted": f"{pulse.get('sp500', {}).get('pct_7d', 0):+.1f}%"
+                "status": (spx.get("trend") or "flat").lower(),
+                "formatted": _fmt(spx.get("pct_7d"), "+.1f") + ("%" if spx.get("pct_7d") is not None else "")
             },
             "gold_7d": {
-                "value": pulse.get("gold", {}).get("pct_7d"),
+                "value": gold.get("pct_7d"),
                 "label": "Gold 7D",
-                "status": pulse.get("gold", {}).get("signal", "FLAT").lower(),
-                "formatted": f"{pulse.get('gold', {}).get('pct_7d', 0):+.1f}%"
-            }
+                "status": (gold.get("signal") or "flat").lower(),
+                "formatted": _fmt(gold.get("pct_7d"), "+.1f") + ("%" if gold.get("pct_7d") is not None else "")
+            },
+            "market_regime": pulse.get("market_regime")
         }
         _cache_dashboard_block(session, "pulse", payload)
         return payload
@@ -799,201 +775,131 @@ async def get_live_data():
 # CHAT/ANALYSIS API
 # ============================================================================
 
+# Pipeline statuses → dashboard status vocabulary
+_STATUS_MAP = {"queued": "queued", "running": "active", "complete": "done",
+               "error": "error", "idle": "idle"}
+
+
 @app.post("/api/chat")
 async def chat_endpoint(request: Request, data: dict):
     """
-    Main analysis endpoint - sends message to orchestrator agent
-    The orchestrator handles routing to other agents
+    Main analysis endpoint — runs the 8-agent pipeline in-process.
+    The engine routes intents to agent waves and returns a structured result.
     """
     session = get_session(request)
     message = data.get("message", "")
-    
+
     if not message:
         raise HTTPException(status_code=400, detail="Message is required")
-    
+
     logger.info(f"Chat request from session {session['session_id']}: {message[:50]}...")
-    
-    # Add user message to conversation
+
+    # History BEFORE this message (engine context), then persist the user turn
+    history = [
+        {"role": m.get("role", "user"), "content": m.get("content", "")}
+        for m in session.get("conversation", [])[-10:]
+    ]
     _append_conversation(session, {
         "role": "user",
         "content": message,
         "timestamp": datetime.utcnow().isoformat()
     })
-    
-    # Get live data for context
-    try:
-        live_data = get_all_live_data()
-    except Exception as e:
-        logger.error(f"Error fetching live data: {e}")
-        live_data = {"data_quality": "MINIMAL"}
-    
-    # Build context for orchestrator
-    context = _build_agent_context(session, live_data)
-    profile = context.get("profile") or {}
-    profile_summary = _format_profile_summary(profile)
-    enriched_message = message
-    if profile_summary:
-        enriched_message = f"{message}\n\nCompany profile: {profile_summary}"
-    
-    # Update agent status
-    session["agent_statuses"]["orchestrator"] = "active"
-    await broadcast_status(session["session_id"])
-    
-    try:
-        # Call orchestrator agent
-        response = requests.post(
-            ORCHESTRATOR_URL,
-            json={
-                "message": enriched_message,
-                "context": context,
-                "session_id": session["session_id"]
-            },
-            timeout=120  # 2 minutes for full analysis
-        )
-        response.raise_for_status()
-        result = response.json()
-        
-        # Update agent status
-        session["agent_statuses"]["orchestrator"] = "done"
-        await broadcast_status(session["session_id"])
-        
-        # Parse and update session with results
-        _update_session_from_result(session, result)
-        
-        # Extract clean response
-        raw_message = result.get("message", result.get("response", ""))
-        clean_message = _extract_clean_verdict(raw_message)
-        agents_used = result.get("agents_activated", []) or []
 
-        # If the pipeline is degraded, use demo mode for the demo
-        lowered = str(raw_message).lower()
-        if "unavailable" in lowered or "not available" in lowered or "temporarily" in lowered:
-            # DEMO MODE: Return realistic briefing with proper agent sequence
-            logger.warning(f"Orchestrator degraded, activating DEMO MODE for message: {message[:50]}")
-            
-            # Detect message intent and return realistic demo response
-            msg_lower = message.lower()
-            if any(kw in msg_lower for kw in ["product", "launch", "r&d", "develop"]):
-                clean_message = (
-                    "Product launch in volatile markets requires careful sequencing. Risk score: 68 (ORANGE). "
-                    "Top risk: Market timing volatility (86% probability). "
-                    "Action: Delay launch 2–4 weeks until VIX stabilizes below 18, or reduce scope to MVP. "
-                    "Market is RISK-OFF but opportunity window remains open through Q2."
-                )
-                agents_used = ["Orchestrator", "Signal Harvester", "Narrative Intel", "Macro Watchdog", "Risk Synthesizer", "Strategy Commander"]
-            else:
-                clean_message = (
-                    "Current market conditions are favorable for strategic assessment. "
-                    "Recommend holding position while gathering intelligence on macro shifts. "
-                    "Reassess decision in 1–2 weeks as data clarifies."
-                )
-                agents_used = ["Orchestrator", "Signal Harvester", "Risk Synthesizer"]
-        
-        # Fallback: infer agents from user message if orchestrator didn't return them
-        if not agents_used:
-            agents_used = _infer_agents_from_message(message)
-        
-        # Add assistant response to conversation
-        _append_conversation(session, {
-            "role": "assistant",
-            "content": clean_message,
-            "timestamp": datetime.utcnow().isoformat(),
-            "intent": result.get("intent"),
-            "agents_used": agents_used
-        })
-        
-        logger.info(f"Analysis complete for session {session['session_id']}")
-        
-        return {
-            "status": "success",
-            "message": clean_message,
-            "intent": result.get("intent"),
-            "agents_used": agents_used,
-            "execution_time": result.get("execution_time", 0)
-        }
-        
-    except requests.Timeout:
-        session["agent_statuses"]["orchestrator"] = "error"
-        await broadcast_status(session["session_id"])
-        raise HTTPException(status_code=504, detail="Analysis timed out (>120s)")
-    
-    except requests.RequestException as e:
-        session["agent_statuses"]["orchestrator"] = "error"
-        await broadcast_status(session["session_id"])
-        logger.error(f"Orchestrator call failed: {e}")
-        raise HTTPException(status_code=503, detail=f"Orchestrator agent unavailable: {str(e)}")
-
-
-def _build_agent_context(session: dict, live_data: dict) -> dict:
-    """Build context object for orchestrator agent"""
     profile = _normalize_profile(session.get("profile") or {})
-    
+
+    # Stream engine agent statuses into the session; /ws polls and broadcasts.
+    # Note: the listener is process-global — concurrent chats from different
+    # sessions may briefly cross-talk status displays (portfolio-scope tradeoff).
+    def _on_status(agent_name: str, status: str, elapsed=None):
+        session["agent_statuses"][agent_name] = _STATUS_MAP.get(status, status)
+
+    set_status_listener(_on_status)
+    try:
+        result = await asyncio.to_thread(
+            run_pipeline, message, profile or None, history
+        )
+    except Exception as e:
+        session["agent_statuses"]["orchestrator"] = "error"
+        await broadcast_status(session["session_id"])
+        logger.error(f"Pipeline failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis pipeline failed: {e}")
+    finally:
+        set_status_listener(None)
+
+    await broadcast_status(session["session_id"])
+
+    # Persist structured outputs to the session (engine owns no state)
+    _update_session_from_result(session, result)
+
+    intent = result.get("intent_type", "")
+    if intent == "INVESTMENT_QUERY" and result.get("oracle_output"):
+        raw_message = result["oracle_output"]
+    else:
+        raw_message = result.get("primary_response", "")
+
+    # Honest degradation: if the LLM was unreachable the engine returns
+    # "[AGENT UNAVAILABLE …]" placeholders — say so plainly, never fake analysis.
+    if "UNAVAILABLE" in raw_message[:120]:
+        status = "degraded"
+        clean_message = (
+            "Vigil's analysis agents are unavailable right now — check that your "
+            "LLM API key (AIML_API_KEY or LLM_API_KEY in .env) is set and valid. "
+            "Live market data remains active."
+        )
+    else:
+        status = "success"
+        clean_message = _extract_clean_verdict(raw_message)
+
+    agents_used = [
+        a.replace("_", " ").title() for a in result.get("agents_activated", [])
+    ]
+
+    _append_conversation(session, {
+        "role": "assistant",
+        "content": clean_message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "intent": intent,
+        "agents_used": agents_used
+    })
+
+    logger.info(f"Analysis complete for session {session['session_id']}")
+
     return {
-        "profile": profile,
-        "conversation_history": session.get("conversation", [])[-10:],  # Last 10 messages
-        "live_data": live_data,
-        "last_analysis": {
-            "risk_score": session.get("last_risk_score"),
-            "risk_tier": session.get("last_risk_tier"),
-            "verdict": session.get("last_verdict"),
-        } if session.get("last_risk_score") else None
+        "status": status,
+        "message": clean_message,
+        "intent": intent,
+        "agents_used": agents_used,
+        "risk_score": result.get("risk_score"),
+        "risk_tier": result.get("risk_tier"),
+        "execution_time": result.get("total_time_seconds", 0)
     }
 
 
-def _infer_agents_from_message(message: str) -> list[str]:
-    """
-    Simulate realistic agent activation based on message intent.
-    Falls back when orchestrator doesn't return agents_activated.
-    """
-    msg_lower = message.lower()
-    
-    # Investment keywords → Signal + Oracle only
-    inv_keywords = ["buy", "sell", "invest", "stock", "crypto", "nasdaq", "ticker", "price", "portfolio", "trade"]
-    if any(kw in msg_lower for kw in inv_keywords):
-        return ["Orchestrator", "Signal Harvester", "Market Oracle"]
-    
-    # Product/launch/R&D keywords → Signal + Narrative + Macro + Synthesizer + Commander
-    product_keywords = ["product", "launch", "r&d", "innovation", "develop", "feature", "roadmap"]
-    if any(kw in msg_lower for kw in product_keywords):
-        return ["Orchestrator", "Signal Harvester", "Narrative Intel", "Macro Watchdog", "Risk Synthesizer", "Strategy Commander"]
-    
-    # Competitive/market keywords → Signal + Competitive + Synthesizer + Commander
-    comp_keywords = ["competitor", "competitive", "market share", "threat", "acquisition", "m&a", "rival"]
-    if any(kw in msg_lower for kw in comp_keywords):
-        return ["Orchestrator", "Signal Harvester", "Competitive Intel", "Risk Synthesizer", "Strategy Commander"]
-    
-    # Macro/policy keywords → Signal + Macro + Synthesizer + Commander
-    macro_keywords = ["rate", "gdp", "inflation", "policy", "regulation", "compliance", "mica", "central bank"]
-    if any(kw in msg_lower for kw in macro_keywords):
-        return ["Orchestrator", "Signal Harvester", "Macro Watchdog", "Risk Synthesizer", "Strategy Commander"]
-    
-    # Default: Full pipeline → Signal + Narrative + Macro + Competitive + Synthesizer + Commander
-    return ["Orchestrator", "Signal Harvester", "Narrative Intel", "Macro Watchdog", "Competitive Intel", "Risk Synthesizer", "Strategy Commander"]
-
-
 def _update_session_from_result(session: dict, result: dict):
-    """Update session with analysis results"""
-    # Only update risk data for non-investment intents
-    intent = result.get("intent", "")
-    
-    if intent != "INVESTMENT_QUERY":
-        # Update risk score and verdict
-        if "risk_score" in result:
+    """Persist pipeline outputs to the session — the engine owns no state."""
+    # Risk-strip fields update only for full-risk-analysis intents
+    # (Oracle/pulse runs preserve the previous strip state).
+    if result.get("updates_risk_strip"):
+        if result.get("risk_score") is not None:
             session["last_risk_score"] = result["risk_score"]
-        if "risk_tier" in result:
+        if result.get("risk_tier"):
             session["last_risk_tier"] = result["risk_tier"]
-        if "verdict" in result:
+        if result.get("verdict"):
             session["last_verdict"] = result["verdict"]
-        if "top_risks" in result:
+        if result.get("top_risks"):
             session["last_top_risks"] = result["top_risks"]
-        if "top_actions" in result:
+        if result.get("top_actions"):
             session["last_top_actions"] = result["top_actions"]
-        if "playbook" in result:
-            session["last_playbook"] = result["playbook"]
-    
-    # Investment queries update oracle output only
-    if intent == "INVESTMENT_QUERY" and "oracle_output" in result:
+        if result.get("score_breakdown"):
+            session["last_score_breakdown"] = result["score_breakdown"]
+        if result.get("full_playbook"):
+            session["last_playbook"] = result["full_playbook"]
+
+    if result.get("oracle_output"):
         session["last_oracle_output"] = result["oracle_output"]
+
+    session["updated_at"] = datetime.utcnow().isoformat()
+    SESSION_STORE.save()
 
 
 # ============================================================================
@@ -1043,20 +949,17 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    # Check orchestrator availability
-    orchestrator_healthy = False
-    try:
-        resp = requests.get(ORCHESTRATOR_URL.replace("/chat", "/health"), timeout=5)
-        orchestrator_healthy = resp.status_code == 200
-    except:
-        pass
-    
+    llm_key_set = bool(
+        os.getenv("LLM_API_KEY") or os.getenv("AIML_API_KEY") or os.getenv("OPENAI_API_KEY")
+    )
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
+        "engine": "in-process",
+        "llm_key_configured": llm_key_set,
+        "newsapi_key_configured": bool(os.getenv("NEWSAPI_KEY")),
         "sessions": len(SESSIONS),
-        "active_connections": len(active_connections),
-        "orchestrator": "online" if orchestrator_healthy else "offline"
+        "active_connections": len(active_connections)
     }
 
 
@@ -1067,8 +970,7 @@ async def health_check():
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 60)
-    logger.info("Vigil FastAPI Gateway starting...")
-    logger.info(f"Orchestrator URL: {ORCHESTRATOR_URL}")
+    logger.info("Vigil starting — single-process, 8-agent engine in-process")
     logger.info(f"Sessions loaded: {len(SESSIONS)}")
     
     # Cleanup old sessions (>7 days)

@@ -48,13 +48,15 @@ async function fetchJson(url, init) {
 
 async function initDashboard() {
   try {
+    // Each block fails independently — one dead endpoint must never blank
+    // the whole dashboard (renderers show honest "--" states on null).
     const [profile, intelligence, scores, pulse, sectors, feed, chatHistory] = await Promise.all([
-      fetchJson('/api/profile/load'),
-      fetchJson('/api/intelligence/analyze'),
-      fetchJson('/api/scores/breakdown'),
-      fetchJson('/api/market/pulse'),
-      fetchJson('/api/sectors/performance'),
-      fetchJson('/api/feed/intelligence'),
+      fetchJson('/api/profile/load').catch(() => null),
+      fetchJson('/api/intelligence/analyze').catch(() => null),
+      fetchJson('/api/scores/breakdown').catch(() => null),
+      fetchJson('/api/market/pulse').catch(() => null),
+      fetchJson('/api/sectors/performance').catch(() => null),
+      fetchJson('/api/feed/intelligence').catch(() => null),
       fetchJson('/api/chat/history').catch(() => ({ conversation: [] }))
     ]);
 
@@ -248,27 +250,38 @@ function renderIntelligence() {
       actions.slice(0, 6).map((action, idx) => `${idx + 1}. ${esc(action.name || 'Action')} — ${esc(action.deadline || 'No deadline')}`).join('<br>');
   }
 
+  // Oracle tab shows the REAL Market Oracle output — never a derived fake verdict.
   const oracleVerdict = document.getElementById('oracleVerdict');
   const oracleConfidence = document.getElementById('oracleConfidence');
   const oracleCases = document.getElementById('oracleCases');
-  if (oracleVerdict) oracleVerdict.textContent = Number(intelligence.risk_score) >= 70 ? 'WAIT ⚠️' : 'MOVE ✅';
-  if (oracleConfidence) oracleConfidence.textContent = `Based on live risk score ${esc(intelligence.risk_score)}`;
-  if (oracleCases) {
-    oracleCases.innerHTML = `
-      <div class="doc take"><strong>Live Summary:</strong> ${esc(intelligence.summary_text || 'N/A')}</div>
-      <div class="doc hist"><strong>Top Risk:</strong> ${esc(risks[0]?.name || 'N/A')}</div>
-      <div class="doc bull"><strong>Top Action:</strong> ${esc(actions[0]?.name || 'N/A')}</div>
-    `;
+  const oracleText = intelligence.oracle_output || '';
+  if (oracleText) {
+    const verdictMatch = oracleText.match(/Verdict:\*{0,2}\s*([^\n*]+)/i);
+    if (oracleVerdict) oracleVerdict.textContent = verdictMatch ? verdictMatch[1].trim() : 'ORACLE ANALYSIS';
+    if (oracleConfidence) oracleConfidence.textContent = 'From last Market Oracle run';
+    if (oracleCases) {
+      oracleCases.innerHTML = `<div class="doc take" style="white-space:pre-wrap">${esc(oracleText.slice(0, 1200))}</div>`;
+    }
+  } else {
+    if (oracleVerdict) oracleVerdict.textContent = '—';
+    if (oracleConfidence) oracleConfidence.textContent = 'No Oracle run yet';
+    if (oracleCases) {
+      oracleCases.innerHTML = '<div class="doc take">Ask an investment question in the chat (e.g. "Should I buy gold?") to activate Market Oracle.</div>';
+    }
   }
 }
 
 function renderScores() {
   const scores = dashboardState.scores;
-  if (!scores || scores.requires_profile) {
+  if (!scores || scores.requires_profile || scores.requires_briefing) {
     const bdrs = document.querySelectorAll('.bdr .bdv');
     bdrs.forEach((v) => { v.textContent = '--'; });
     const formula = document.getElementById('drawerScoresFormula');
-    if (formula) formula.textContent = 'Add company profile to compute score breakdown.';
+    if (formula) {
+      formula.textContent = scores?.requires_briefing
+        ? 'Run a briefing in the chat to compute the score breakdown.'
+        : 'Add company profile to compute score breakdown.';
+    }
     return;
   }
 
@@ -316,9 +329,9 @@ function renderScores() {
 
   if (compositeValue) compositeValue.textContent = String(composite);
   if (compositeTier) compositeTier.textContent = `${tier} TIER`;
-  if (coherence) coherence.textContent = 'LIVE SIGNALS';
+  if (coherence) coherence.textContent = 'FROM LAST BRIEFING';
   if (playbookComposite) playbookComposite.textContent = String(composite);
-  if (playbookStance) playbookStance.textContent = composite >= 70 ? 'DEFEND / RAISE' : composite >= 55 ? 'CAUTIOUS BUILD' : 'GROW';
+  if (playbookStance) playbookStance.textContent = (composite >= 70 ? 'DEFEND / RAISE' : composite >= 55 ? 'CAUTIOUS BUILD' : 'GROW') + ' (score heuristic)';
   if (playbookScores) {
     playbookScores.innerHTML = entries.map((entry) => {
       const score = Number(scores[entry.key]?.score || 0);
@@ -341,14 +354,18 @@ function renderPulse() {
     valueEl.className = `pmv ${statusToClass(item.status)}`;
   });
 
+  // Regime comes from the data layer's real computation when available;
+  // the stance label is an explicit VIX heuristic, not agent output.
   const vix = Number(pulse.vix?.value || 0);
   const regimeValue = document.getElementById('regimeValue');
   const regimeSub = document.getElementById('regimeSub');
   const stanceValue = document.getElementById('stanceValue');
 
-  if (regimeValue) regimeValue.textContent = vix >= 25 ? '⚠ RISK-OFF' : vix >= 18 ? '◐ TRANSITIONAL' : '✅ RISK-ON';
-  if (regimeSub) regimeSub.textContent = `VIX ${vix || 'N/A'} from backend feed`;
-  if (stanceValue) stanceValue.textContent = vix >= 25 ? 'DEFEND' : 'SELECTIVE DEPLOY';
+  const regime = pulse.market_regime
+    || (vix >= 25 ? 'RISK-OFF' : vix >= 18 ? 'TRANSITIONAL' : 'RISK-ON');
+  if (regimeValue) regimeValue.textContent = regime === 'RISK-OFF' ? `⚠ ${regime}` : regime === 'RISK-ON' ? `✅ ${regime}` : `◐ ${regime}`;
+  if (regimeSub) regimeSub.textContent = vix ? `VIX ${vix} — live` : 'VIX unavailable';
+  if (stanceValue) stanceValue.textContent = vix ? (vix >= 25 ? 'DEFEND (VIX heuristic)' : 'SELECTIVE DEPLOY (VIX heuristic)') : '—';
 }
 
 function renderSectors() {

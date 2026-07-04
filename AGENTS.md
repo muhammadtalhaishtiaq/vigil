@@ -6,20 +6,21 @@
 
 ## Agent Overview
 
-Vigil uses 8 specialized AI agents powered by the AIML API (OpenAI-compatible, Claude models).
+Vigil uses 8 specialized AI agents running in-process (`agent_pipeline.py`) — Claude
+models by default, via any OpenAI-compatible endpoint (AIML API out of the box).
 The **Orchestrator** receives every query and routes it to the appropriate specialist agents.
 
 ```
 ┌─────────────┐
 │ Orchestrator│ ← Always first. Classifies intent, routes specialists, synthesizes final response.
 └──────┬──────┘
-       ├── FULL_BRIEFING       → Agents 2,3,4,5,6,7,8
-       ├── MACRO_FOCUS         → Agents 2,4,6
-       ├── COMPETITIVE_FOCUS   → Agents 2,5,6
-       ├── DECISION_SUPPORT    → Agents 2,4,7,6
-       ├── SCENARIO            → Agents 2,3,4,6,7
+       ├── FULL_BRIEFING       → Agents 2,3,4,5,6,7  (3+4+5 run in parallel)
+       ├── MACRO_FOCUS         → Agents 2,4,6,7
+       ├── COMPETITIVE_FOCUS   → Agents 2,5,6,7
+       ├── DECISION_SUPPORT    → Agents 2,4,6,7
+       ├── SCENARIO            → Agents 2,4,6,7
        ├── INVESTMENT_QUERY    → Agents 2,8
-       └── MARKET_PULSE        → Agent 2 only
+       └── MARKET_PULSE        → Agents 2,3,6 (brief mode)
 ```
 
 ---
@@ -30,12 +31,12 @@ The **Orchestrator** receives every query and routes it to the appropriate speci
 |-------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | 1. Orchestrator | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 2. Signal Harvester | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 3. Narrative Intel | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| 3. Narrative Intel | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | 4. Macro Watchdog | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | 5. Competitive Intel | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 6. Risk Synthesizer | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 7. Strategy Commander | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| 8. Market Oracle | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| 6. Risk Synthesizer | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ (brief) |
+| 7. Strategy Commander | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| 8. Market Oracle | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
 
 **Strip persistence** (risk/action strip on dashboard) only updates for:
 `FULL_BRIEFING`, `MACRO_FOCUS`, `COMPETITIVE_FOCUS`, `DECISION_SUPPORT`, `SCENARIO`
@@ -46,7 +47,7 @@ The **Orchestrator** receives every query and routes it to the appropriate speci
 
 ## Agent 1 — Orchestrator
 
-**Model:** `claude-opus-4-6` (highest reasoning capability)
+**Model:** `claude-sonnet-4-6` (default — override all agents with `VIGIL_MODEL`)
 **File:** `vigil/prompts/orchestrator.txt`
 
 ### Role
@@ -58,7 +59,7 @@ The Orchestrator is the entry point for every user query. It has three responsib
 ### System Prompt Description
 The Orchestrator prompt defines:
 - The 7 intent types with routing examples
-- Output format: JSON block containing `intent_type`, `risk_score`, `risk_tier`, `verdict`, `top_risks[]`, `top_actions[]`
+- Output format: structured `KEY: value` lines (`INTENT_TYPE:`, `RISK_SCORE:`, `RISK_TIER:`, `VERDICT:`, risk/action blocks) parsed by `parse_orchestrator_response()`
 - Instructions to synthesize specialist outputs into a coherent final answer
 - Tone: direct, data-grounded, Bloomberg-terminal style
 
@@ -70,19 +71,13 @@ The Orchestrator prompt defines:
 - `[ROUTING HINT: INVESTMENT_QUERY]` when investment keywords detected
 
 ### Outputs
-```json
-{
-  "intent_type": "FULL_BRIEFING",
-  "risk_score": 72,
-  "risk_tier": "ORANGE",
-  "verdict": "AlfaTrader AI faces 68% MiCA exposure...",
-  "top_risks": [
-    {"name": "MiCA Compliance", "probability": "88%", "detail": "...", "action_if_ignored": "..."}
-  ],
-  "top_actions": [
-    {"title": "Engage EU counsel", "owner": "CEO", "deadline": "Thu", "urgency": "HIGH", "detail": "..."}
-  ]
-}
+Structured text parsed by `parse_orchestrator_response()` (`agent_pipeline.py`):
+```text
+INTENT_TYPE: FULL_BRIEFING
+RISK_SCORE: <0-100>
+RISK_TIER: GREEN|YELLOW|ORANGE|RED|DARK_RED
+VERDICT: <one-line verdict>
+TOP RISKS / NEXT MOVES blocks (NAME/PROBABILITY/SEVERITY/DETAIL, TITLE/OWNER/DEADLINE/URGENCY)
 ```
 
 ### Intent Classification Rules
@@ -141,10 +136,10 @@ Analyzes financial headlines for:
 - Geopolitical risk mentions relevant to the user's sector
 
 ### Activated For
-`FULL_BRIEFING`, `SCENARIO`
+`FULL_BRIEFING`, `MARKET_PULSE`
 
 ### Idle For
-`MACRO_FOCUS`, `COMPETITIVE_FOCUS`, `DECISION_SUPPORT`, `INVESTMENT_QUERY`, `MARKET_PULSE`
+`MACRO_FOCUS`, `COMPETITIVE_FOCUS`, `DECISION_SUPPORT`, `SCENARIO`, `INVESTMENT_QUERY`
 
 ---
 
@@ -190,36 +185,20 @@ Uses news signals to identify:
 
 ## Agent 6 — Risk Synthesizer
 
-**Model:** `claude-opus-4-6` (structured JSON output required)
+**Model:** `claude-sonnet-4-6` (structured output required)
 **File:** `vigil/prompts/risk_synthesizer.txt`
 
 ### Role
 Aggregates all specialist outputs into a single composite risk score (0–100), tier classification, and top 3 ranked risks with action triggers.
 
 ### System Prompt Description
-Produces structured JSON:
-```json
-{
-  "risk_score": 72,
-  "risk_tier": "ORANGE",
-  "top_risks": [
-    {
-      "name": "MiCA Compliance Gap",
-      "probability": "88%",
-      "detail": "Article 63 requires crypto-asset issuers...",
-      "action_if_ignored": "Regulatory enforcement + €500K fine"
-    }
-  ],
-  "top_actions": [
-    {
-      "title": "Engage EU regulatory counsel",
-      "owner": "CEO / General Counsel",
-      "deadline": "Within 5 business days",
-      "urgency": "CRITICAL",
-      "detail": "MiCA Art.63 compliance window closes April 30..."
-    }
-  ]
-}
+Produces structured `KEY: value` output parsed by the pipeline:
+```text
+RISK_SCORE: <0-100>          (composite: Macro×0.35 + Market×0.25 + Narrative×0.20 + Competitive×0.20)
+RISK_TIER: GREEN|YELLOW|ORANGE|RED|DARK_RED
+VERDICT: <one line>
+SCORE_BREAKDOWN: MACRO/MARKET/NARRATIVE/COMPETITIVE sub-scores
+TOP RISKS: NAME | PROBABILITY | SEVERITY + DETAIL lines
 ```
 
 ### Risk Tier Scale
@@ -229,10 +208,10 @@ Produces structured JSON:
 | 26–50 | YELLOW ⚠️ | `#ffd740` | Elevated watch, monitor closely |
 | 51–70 | ORANGE 🟠 | `#ff9100` | High risk, action required |
 | 71–85 | RED 🔴 | `#ff5252` | Critical risk, immediate action |
-| 86–100 | BLACK ⬛ | `#e0e0e0` | Extreme risk, crisis mode |
+| 86–100 | DARK_RED ⬛ | `#b71c1c` | Extreme risk, crisis mode |
 
 ### Activated For
-`FULL_BRIEFING`, `MACRO_FOCUS`, `COMPETITIVE_FOCUS`, `DECISION_SUPPORT`, `SCENARIO`
+`FULL_BRIEFING`, `MACRO_FOCUS`, `COMPETITIVE_FOCUS`, `DECISION_SUPPORT`, `SCENARIO`, `MARKET_PULSE` (brief mode)
 
 **Note:** Risk Synthesizer outputs persist to the dashboard strip only for these intents (not `INVESTMENT_QUERY` or `MARKET_PULSE`).
 
@@ -257,7 +236,7 @@ Generates a playbook with:
 Full playbook text (displayed in the "📋 Playbook" tab) + structured top_actions for the strip.
 
 ### Activated For
-`FULL_BRIEFING`, `DECISION_SUPPORT`, `SCENARIO`
+`FULL_BRIEFING`, `MACRO_FOCUS`, `COMPETITIVE_FOCUS`, `DECISION_SUPPORT`, `SCENARIO`
 
 ---
 
@@ -288,7 +267,7 @@ Produces:
 ```
 
 ### Activated For
-`INVESTMENT_QUERY`, `FULL_BRIEFING`
+`INVESTMENT_QUERY`
 
 **Note:** Oracle tab on the dashboard only populates when last intent is `INVESTMENT_QUERY`.
 
@@ -296,19 +275,18 @@ Produces:
 
 ## Routing Logic (agent_pipeline.py)
 
-```python
-INTENT_ROUTING = {
-    "FULL_BRIEFING": [
-        "signal_harvester", "narrative_intel", "macro_watchdog",
-        "competitive_intel", "risk_synthesizer", "strategy_commander", "market_oracle"
-    ],
-    "MACRO_FOCUS": ["signal_harvester", "macro_watchdog", "risk_synthesizer"],
-    "COMPETITIVE_FOCUS": ["signal_harvester", "competitive_intel", "risk_synthesizer"],
-    "DECISION_SUPPORT": ["signal_harvester", "macro_watchdog", "strategy_commander", "risk_synthesizer"],
-    "SCENARIO": ["signal_harvester", "narrative_intel", "macro_watchdog", "risk_synthesizer", "strategy_commander"],
-    "INVESTMENT_QUERY": ["signal_harvester", "market_oracle"],
-    "MARKET_PULSE": ["signal_harvester"],
-}
+Routing is an if/elif chain on the Orchestrator's classified intent inside
+`run_pipeline()` — the actual activation sets are:
+
+```text
+INVESTMENT_QUERY  → signal_harvester, market_oracle
+MARKET_PULSE      → signal_harvester, narrative_intel, risk_synthesizer (brief mode)
+MACRO_FOCUS       → signal_harvester, macro_watchdog, risk_synthesizer, strategy_commander
+DECISION_SUPPORT  → signal_harvester, macro_watchdog, risk_synthesizer, strategy_commander
+SCENARIO          → signal_harvester, macro_watchdog, risk_synthesizer, strategy_commander
+COMPETITIVE_FOCUS → signal_harvester, competitive_intel, risk_synthesizer, strategy_commander
+FULL_BRIEFING     → signal_harvester → (narrative ∥ macro ∥ competitive, parallel)
+                    → risk_synthesizer → strategy_commander
 ```
 
 Strip persistence only updates for:
