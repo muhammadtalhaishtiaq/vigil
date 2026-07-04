@@ -124,20 +124,28 @@ def _has_user_profile(session: dict) -> bool:
 
 
 def _normalize_profile(profile: Optional[dict]) -> dict:
-    """Normalize profile keys for downstream consumers."""
+    """
+    Normalize profile keys in BOTH directions — the profile form uses
+    location/industry/employees/arb, the engine and legacy consumers use
+    country/sector/team_size/arr. Keep every alias populated so the
+    save → load round-trip never drops fields.
+    """
     if not isinstance(profile, dict):
         return {}
     normalized = dict(profile)
-    if not normalized.get("industry") and normalized.get("sector"):
-        normalized["industry"] = normalized.get("sector")
-    if not normalized.get("location") and normalized.get("country"):
-        normalized["location"] = normalized.get("country")
-    if not normalized.get("employees") and normalized.get("team_size"):
-        normalized["employees"] = normalized.get("team_size")
-    if not normalized.get("arr_range") and normalized.get("arr"):
-        normalized["arr_range"] = normalized.get("arr")
-    if not normalized.get("funding_stage") and normalized.get("stage"):
-        normalized["funding_stage"] = normalized.get("stage")
+    aliases = [
+        ("industry", "sector"),
+        ("location", "country"),
+        ("employees", "team_size"),
+        ("arb", "arr"),
+        ("arr", "arr_range"),
+        ("stage", "funding_stage"),
+    ]
+    for a, b in aliases:
+        if not normalized.get(a) and normalized.get(b):
+            normalized[a] = normalized.get(b)
+        if not normalized.get(b) and normalized.get(a):
+            normalized[b] = normalized.get(a)
     return normalized
 
 
@@ -434,6 +442,12 @@ async def load_profile(request: Request):
         "company_name": profile.get("company_name", ""),
         "website": profile.get("website", ""),
         "description": profile.get("description", ""),
+        # Profile-form field names (must round-trip: gatherFormData → save → load)
+        "location": profile.get("location", "") or profile.get("country", ""),
+        "industry": profile.get("industry", "") or profile.get("sector", ""),
+        "employees": profile.get("employees", "") or profile.get("team_size", ""),
+        "arb": profile.get("arb", "") or profile.get("arr", ""),
+        "tags": profile.get("tags", []),
         "sector": profile.get("sector", ""),
         "sub_sector": profile.get("sub_sector", ""),
         "primary_market": profile.get("primary_market", ""),
@@ -589,7 +603,7 @@ async def get_market_pulse_api(request: Request):
         return format(value, spec) if value is not None else "—"
 
     try:
-        pulse = fetch_market_pulse()
+        pulse = await asyncio.to_thread(fetch_market_pulse)
         vix = pulse.get("vix", {})
         spx = pulse.get("spx", {})
         tnx = pulse.get("treasury_10y", {})
@@ -642,7 +656,7 @@ async def get_sectors_performance_api(request: Request):
     """Get LIVE sector performance from data_layer"""
     session = get_session(request)
     try:
-        sectors_data = fetch_sector_performance()
+        sectors_data = await asyncio.to_thread(fetch_sector_performance)
         
         # Map full sector names to dashboard short names
         sector_map = {
@@ -695,7 +709,7 @@ async def get_feed_intelligence_api(request: Request):
             industry = "finance"
         sector = industry.strip().lower()
         
-        headlines = fetch_live_headlines(sector=sector)
+        headlines = await asyncio.to_thread(fetch_live_headlines, sector)
         
         # Map data_layer format to dashboard format
         feed = [
@@ -758,7 +772,7 @@ def _calculate_profile_completeness(profile: Optional[dict]) -> int:
 async def get_live_data():
     """Get live market data (wraps data_layer)"""
     try:
-        data = get_all_live_data()
+        data = await asyncio.to_thread(get_all_live_data)
         return data
     except Exception as e:
         logger.error(f"Error fetching live data: {e}")
