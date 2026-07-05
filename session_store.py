@@ -1,7 +1,12 @@
 """
 Persistent session storage using JSON files.
 Auto-saves on every session mutation. Loads on startup.
+
+Storage location is configurable via VIGIL_DATA_DIR — point it at a mounted
+volume (e.g. Railway/Fly persistent disk) so sessions survive redeploys.
+Defaults to the project directory.
 """
+import os
 import json
 import logging
 from pathlib import Path
@@ -10,7 +15,14 @@ from datetime import datetime
 
 logger = logging.getLogger("session_store")
 
-SESSIONS_FILE = Path(__file__).parent / "sessions.json"
+_DATA_DIR = Path(os.getenv("VIGIL_DATA_DIR", Path(__file__).parent))
+try:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+except Exception as e:  # non-writable mount → fall back to project dir
+    logger.warning(f"VIGIL_DATA_DIR unusable ({e}); using project directory")
+    _DATA_DIR = Path(__file__).parent
+
+SESSIONS_FILE = _DATA_DIR / "sessions.json"
 
 class SessionStore:
     def __init__(self):
