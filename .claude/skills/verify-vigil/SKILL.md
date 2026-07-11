@@ -1,51 +1,64 @@
 ---
 name: verify-vigil
-description: >
-  Verify Vigil actually works after a change: compile check, boot the FastAPI app,
-  exercise the affected endpoints, and confirm graceful no-keys degradation. Use
-  before marking any task complete or committing a nontrivial change.
+description: Verify Vigil actually works after a change — compile, boot the CLI + MCP, run the offline test suite, and confirm graceful no-keys degradation. Use before marking any task complete or committing a nontrivial change.
 ---
 
 # Verify Vigil
 
+Vigil is a **terminal + MCP** app (no web server). Verify against that reality.
+
 ## 1. Static checks (always)
 
 ```bash
-python3 -m py_compile main.py agent_pipeline.py data_layer.py session_store.py
-python3 -c "import agent_pipeline"   # must succeed without streamlit installed
-grep -n "streamlit\|session_manager" agent_pipeline.py   # expect no hits
+cd "$(git rev-parse --show-toplevel)"
+.venv/bin/python -m py_compile agent_core.py agent_pipeline.py tools.py \
+    tracing.py vigil_cli.py vigil_mcp.py data_layer.py session_store.py
+.venv/bin/python -c "import agent_pipeline, vigil_cli, vigil_mcp"   # imports clean
+grep -rn "streamlit\|fastapi\|uvicorn\|langchain\|langgraph" *.py   # expect NO hits
 ```
 
-## 2. Boot (always)
+## 2. Test suite (always — this is the primary gate)
 
 ```bash
-uvicorn main:app --port 3000  # run in background, then:
-curl -s http://localhost:3000/health
+.venv/bin/python -m pytest -q          # all tests must pass, offline, no keys
 ```
 
-Expected: JSON with `"status": "healthy"`. Boot must succeed **even with no API keys**.
-
-## 3. Endpoint smoke (pick what the change touched)
+## 3. Boot the front-ends (always)
 
 ```bash
-curl -s http://localhost:3000/                       # landing HTML
-curl -s http://localhost:3000/dashboard              # dashboard HTML
-curl -s http://localhost:3000/api/market/pulse       # live data (yfinance, no key)
-curl -s http://localhost:3000/api/intelligence/analyze
-curl -s -X POST http://localhost:3000/api/chat -H 'Content-Type: application/json' \
-     -d '{"message": "quick market check"}'
+.venv/bin/vigil --help                 # CLI entry point works
+.venv/bin/python -c "import asyncio, vigil_mcp; \
+  print('MCP tools:', len(asyncio.run(vigil_mcp.mcp.list_tools())))"   # expect 2
 ```
 
-## 4. Interpret results honestly
+## 4. No-keys graceful degradation (always)
 
-- **No keys set:** chat should return an honest degraded response (agent unavailable
-  placeholders), never a fake briefing. Market pulse should still return live yfinance
-  data. `/api/intelligence/analyze` without a prior briefing must return a
-  "no analysis yet" state, not numbers.
-- **Keys set (user-provided):** a chat message must produce a real briefing and update
-  the risk strip (`/api/session/dashboard` reflects new score/tier).
-- Any hardcoded score/text in a response = guardrail violation — stop and fix.
+```bash
+# With NO LLM key, an agent call must return a labelled placeholder, never fake data:
+env -i PATH="$PATH" HOME="$HOME" .venv/bin/python -c "
+import agent_core
+out = agent_core.AGENTS['narrative_intel'].run('test')
+assert 'UNAVAILABLE' in out, out
+print('degrades honestly')
+"
+# yfinance tools need no key and should still return real data or an honest 'no data':
+.venv/bin/python -c "import tools; print(tools.TOOL_MARKET_PULSE.fn()[:60])"
+```
 
-## 5. Cleanup
+## 5. Exercise what the change touched (pick relevant)
 
-Kill the uvicorn process you started. Never leave servers running past verification.
+- Engine/parsing change → `pytest tests/test_pipeline.py tests/test_parsing.py`
+- Tools/workspace change → `pytest tests/test_tools.py tests/test_workspace.py`
+- Console change → `pytest tests/test_console.py tests/test_reports.py`
+- With a live key (optional, costs tokens): `.venv/bin/vigil verdict "buy TSLA?"`
+  and/or `.venv/bin/python evals/run_evals.py --only market-pulse`
+
+## 6. Interpret honestly
+
+- **No keys:** agent calls return `UNAVAILABLE` placeholders, never a fabricated
+  briefing. yfinance tools still return live data or an honest "no data".
+- **Any hardcoded score/briefing/statistic in a code path = guardrail violation** —
+  stop and fix. Missing data must be reported as missing.
+- Every user-facing number stays labelled analysis, with the disclaimer intact.
+
+No servers to clean up — nothing is left running.

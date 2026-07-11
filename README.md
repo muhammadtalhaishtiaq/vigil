@@ -1,157 +1,146 @@
-# ⚡ VIGIL — Multi-Agent Financial Risk Intelligence
+# ⚡ VIGIL — your terminal's financial-risk copilot
 
-[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-single%20process-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Claude Agents](https://img.shields.io/badge/Agents-8%20×%20Claude-D97757?style=flat)](AGENTS.md)
-[![lablab.ai Hackathon](https://img.shields.io/badge/lablab.ai-Top%2010%20Finalist-blue?style=flat)](https://lablab.ai)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org)
+[![MCP server](https://img.shields.io/badge/MCP-server-purple?style=flat)](#use-it-from-claude-desktop--cursor-mcp)
+[![Tests](https://img.shields.io/badge/tests-84%20passing-green?style=flat)](tests/)
 [![MIT License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
-**8 specialized AI agents, orchestrated in waves inside a single process, turn live
-market data into a scored, tiered, actionable risk briefing — personalized to your
-company profile.**
+**Describe your company once. Drop your documents in a folder. Then ask anything —
+"how exposed are we to the new EU rules?" — and watch specialized agents pull live
+market data *and your own docs* to build a scored, tiered risk briefing about
+*your* situation.** All local: your machine, your keys, nothing to sign up for.
 
-Born at the Complete AI Agent Hackathon on lablab.ai (**Top-10 finalist**), then
-rebuilt from a 9-service deployment into a clean single-process app you can run
-with one command.
+Born at a lablab.ai hackathon (Top-10 finalist), then rebuilt twice: from nine
+microservices to one honest process, and from a web app to a terminal + MCP tool
+built to production-agent standards — tests, evals, traces, guardrails.
 
-![Vigil dashboard](screenshots/02_dashboard.png)
+## What it actually is (the honest architecture)
 
----
-
-## What it does
-
-**For founders & executives** — set up a company profile once (sector, stage,
-regulations, active decisions). Ask anything: *"How exposed are we this quarter?"*,
-*"Should I delay the raise?"*, *"What if the ECB hikes again?"* Vigil routes the
-question through its agent pipeline and returns a risk score (0–100), a tier
-(GREEN → DARK RED), the top 3 risks, and a prioritized action list.
-
-**For anyone** — no setup needed. Ask Market Oracle a plain-English investment
-question (*"Should I buy NASDAQ stocks right now?"*) and get a
-**BUY / WAIT / CAUTION / AVOID** perspective with the bull case, bear case, and a
-historical parallel.
-
-> ⚠️ **Honest disclaimer:** Vigil's briefings are LLM-generated analysis grounded in
-> live market data — perspective to help you think, **not** certified financial
-> advice, and not a source of verified facts. Always validate before acting.
-
----
-
-## Architecture
-
-One FastAPI process. No microservices, no message queue, no framework lock-in —
-the agents are prompts + a routing table, executed in dependency-ordered waves.
+A **routed multi-agent workflow**: 2 tool-using agents (Signal Harvester, Market
+Oracle), an LLM router (Orchestrator), 4 focused analyst steps, a strategy step,
+and an optional critic (evaluator-optimizer) — orchestrated **framework-free**
+(no LangChain) with deterministic guardrails. Why no framework? The evidence says
+simple, composable patterns beat frameworks — and here you can read every mechanism.
+Full walkthrough: [docs/AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md).
 
 ```
-Browser ──► main.py (FastAPI, one port)
-               │  asyncio.to_thread
-               ▼
-        agent_pipeline.run_pipeline(message, profile, history)
-               │
-               ├─ 1. ORCHESTRATOR ── classifies intent (7 types), routes the waves
-               │
-               ├─ 2. Wave 1: SIGNAL HARVESTER ─── frames live data (yfinance + NewsAPI)
-               │
-               ├─ 3. Wave 2 (parallel, ThreadPoolExecutor):
-               │       NARRATIVE INTEL ∥ MACRO WATCHDOG ∥ COMPETITIVE INTEL
-               │
-               ├─ 4. Wave 3: RISK SYNTHESIZER ─── composite score 0–100 + tier + top risks
-               │
-               └─ 5. Wave 4: STRATEGY COMMANDER / MARKET ORACLE ── actions or verdict
-               
-        Result: score · tier · verdict · top 3 risks · 3 actions · full playbook
+ you ──► Orchestrator (routes 1 of 7 intents)
+              │
+              ▼
+      Signal Harvester ──► calls tools: market pulse · sectors · headlines
+              │                         + YOUR docs (search/read)
+              ▼
+   Narrative │ Macro │ Competitive     (3 analysts, in parallel)
+              ▼
+      Risk Synthesizer ──► score 0-100 + tier   [◄─ optional critic pass]
+              ▼
+     Strategy Commander ──► prioritized actions
 ```
 
-| Intent | Agents activated | Example query |
-|--------|-----------------|---------------|
-| `FULL_BRIEFING` | 7 (Wave 2 in parallel) | "Give me a complete risk briefing" |
-| `MACRO_FOCUS` | Signal, Macro, Synthesizer, Commander | "What's the macro outlook for us?" |
-| `COMPETITIVE_FOCUS` | Signal, Competitive, Synthesizer, Commander | "Competitive landscape?" |
-| `DECISION_SUPPORT` | Signal, Macro, Synthesizer, Commander | "Should I delay Series A?" |
-| `SCENARIO` | Signal, Macro, Synthesizer, Commander | "ECB rate hike scenario" |
-| `INVESTMENT_QUERY` | Signal, Oracle | "Should I buy gold?" |
-| `MARKET_PULSE` | Signal, Narrative, Synthesizer (brief) | "Quick market check" |
+## Install (one line)
 
-The full agent reference (roles, prompts, activation matrix) is in [AGENTS.md](AGENTS.md).
+```bash
+pipx install git+https://github.com/muhammadtalhaishtiaq/vigil.git
+# or:  uvx --from git+https://github.com/muhammadtalhaishtiaq/vigil.git vigil
+```
 
-**Design principles:**
-- **The engine is a pure function** — `(message, profile, history) → result dict`.
-  No web framework, no session state inside it. `main.py` owns persistence.
-- **Provider-agnostic** — any OpenAI-compatible endpoint. Claude models by default
-  via AIML API; point `LLM_BASE_URL`/`LLM_API_KEY` anywhere.
-- **Honest degradation** — no API key? The app still boots, live market data still
-  flows, and chat says plainly that agents are unavailable. Vigil never fabricates
-  analysis.
-
----
-
-## Quick start
+Or clone for development:
 
 ```bash
 git clone https://github.com/muhammadtalhaishtiaq/vigil.git && cd vigil
-pip install -r requirements.txt
-cp .env.example .env        # add your keys (see below)
-uvicorn main:app --port 3000
+pip install -e ".[dev]"
 ```
 
-Open **http://localhost:3000** — that's the whole deployment.
-
-### Environment variables
-
-| Variable | Required | Notes |
-|----------|----------|-------|
-| `AIML_API_KEY` | For agent analysis | [aimlapi.com](https://aimlapi.com) — free tier available |
-| `LLM_BASE_URL` + `LLM_API_KEY` | Alternative to the above | Any OpenAI-compatible endpoint |
-| `VIGIL_MODEL` | No | Force one model for all 8 agents |
-| `NEWSAPI_KEY` | For live headlines | [newsapi.org](https://newsapi.org/register) — free tier: 100 req/day |
-| `SECRET_KEY` | No | Session-cookie signing (ephemeral if unset) |
-
-yfinance market data (prices, VIX, sectors) needs **no key**.
-
-### Health check
+**Keys** (env vars — never committed):
 
 ```bash
-python health_check.py        # verifies NewsAPI, yfinance, LLM endpoint
-curl localhost:3000/health    # runtime status incl. key configuration
+export AIML_API_KEY=...     # or LLM_API_KEY + LLM_BASE_URL for any OpenAI-compatible endpoint
+export NEWSAPI_KEY=...      # optional: live headlines (free tier: newsapi.org)
 ```
 
----
+No keys? It still boots and degrades honestly — agents report what they couldn't
+fetch instead of inventing it. That's a design rule, not an accident.
 
-## Project structure
+## Use it
 
-```
-vigil/
-├── main.py               # FastAPI app — pages, session APIs, runs the engine
-├── agent_pipeline.py     # The 8-agent engine (pure function, wave orchestration)
-├── data_layer.py         # Live market data: yfinance + NewsAPI, 60s cache
-├── session_store.py      # JSON-backed session persistence (gitignored at runtime)
-├── prompts/              # One system prompt per agent (8 files)
-├── static/ + vigil-*.html# Vanilla JS/CSS frontend — no build step
-├── docs/REVAMP_PLAN.md   # The audit + rebuild plan this repo followed
-├── AGENTS.md             # Full agent documentation
-└── health_check.py       # Pre-flight connectivity check
+```bash
+vigil                 # interactive console (the main door)
 ```
 
----
+First run: a 30-second wizard saves your company profile locally. Then just talk:
 
-## Known limitations
+```
+vigil> how exposed are we to the new EU payment rules?
+vigil> /brief         # full briefing — watch the agent wave live
+vigil> /trend         # your risk score over time (sparkline)
+vigil> /agents        # who does what, which model, which tools
+vigil> /export        # write the last briefing to workspace/reports/
+```
 
-- **NewsAPI free tier** caps at 100 requests/day — headlines degrade gracefully to
-  cached/absent beyond that.
-- **Risk scores are model-generated estimates**, not calibrated probabilities. The
-  next planned iteration grounds every risk in cited sources.
-- Session auth is cookie-based without login — built for single-user/demo use.
+**Ground it in your own documents:** drop `.md`/`.txt`/`.csv` files (financials,
+plans, contracts) into `workspace/docs/`, then:
 
-## From hackathon to here
+```
+vigil> /ingest        # distills them into workspace/wiki/ using YOUR llm key
+```
 
-The hackathon version ran 8 agents as separate FastAPI microservices on 9 ports.
-This repo is the deliberate rebuild: same agent design, collapsed into one process,
-fake demo fallbacks removed, claims aligned with code. The full audit and the
-decision log live in [docs/REVAMP_PLAN.md](docs/REVAMP_PLAN.md).
+From then on every briefing reads your knowledge base, and agents can search or
+read the originals mid-analysis (`search_company_docs` / `read_company_doc`).
+Everything under `workspace/` is gitignored — your data never leaves your machine
+except to the LLM provider you chose.
 
-## License
+**Scheduled monitoring** (cron-able one-shot, exit code 2 on a risk jump):
 
-MIT — see [LICENSE](LICENSE).
+```bash
+# weekdays at 08:00 — writes a report and alerts on ≥10-point moves
+0 8 * * 1-5  cd ~/vigil && vigil monitor --threshold 10 || notify-send "Vigil: risk moved"
+```
 
-Built by [Muhammad Talha](https://github.com/muhammadtalhaishtiaq) ·
-Top-10 finalist, Complete AI Agent Hackathon on [lablab.ai](https://lablab.ai)
+One-shots for scripting: `vigil ask "..."` · `vigil verdict "should I buy TSLA?"`
+· `vigil brief`.
+
+## Use it from Claude Desktop / Cursor (MCP)
+
+```jsonc
+// claude_desktop_config.json
+{ "mcpServers": { "vigil": {
+    "command": "vigil-mcp",
+    "env": { "AIML_API_KEY": "your-key" }
+} } }
+```
+
+Two tools appear: `risk_briefing(company, description, …)` and
+`market_verdict(question)` — same engine as the console.
+
+## Built like a production agent (not a demo)
+
+- **Structured outputs** — JSON contracts at every LLM/code seam, regex only as fallback
+- **Observability** — every run writes a replayable JSONL trace (`traces/`) with
+  per-agent tokens, latency, and tool calls; the CLI footer shows cost per run
+- **Evaluation** — 84 offline tests + a golden dataset with an LLM-as-judge
+  harness (`python evals/run_evals.py`)
+- **Guardrails** — deterministic routing backstop, inter-wave validation gates,
+  retry with backoff, prompt-injection envelope on all external text, read-only
+  tools, path-traversal-safe doc access
+- **Honesty** — no fabricated data anywhere; missing data is reported as missing;
+  every number is labeled analysis, not fact
+
+Plan of record and every decision's reason: [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md).
+
+## Development
+
+```bash
+pytest                          # 84 tests, all offline (no keys needed)
+python evals/run_evals.py       # golden evals (needs a live key)
+```
+
+New agent = a prompt file in `prompts/` + a registry entry in `agent_core.py`
+(+ tools if it needs to observe the world). The engine (`agent_pipeline.py`) is a
+pure function: `(message, profile, history) → result dict`.
+
+## Disclaimer
+
+Vigil produces **model-generated analysis, not certified financial advice**.
+It labels its output accordingly — always verify independently before acting.
+
+MIT licensed. Built by [Muhammad Talha Ishtiaq](https://github.com/muhammadtalhaishtiaq).
