@@ -15,7 +15,8 @@ from datetime import datetime
 
 logger = logging.getLogger("session_store")
 
-_DATA_DIR = Path(os.getenv("VIGIL_DATA_DIR", Path(__file__).parent))
+# cwd, not module dir: works from a repo checkout and a pipx/uvx install alike
+_DATA_DIR = Path(os.getenv("VIGIL_DATA_DIR", Path.cwd()))
 try:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
 except Exception as e:  # non-writable mount → fall back to project dir
