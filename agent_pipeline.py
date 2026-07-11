@@ -15,19 +15,37 @@ Framework-free engine: no Streamlit, no FastAPI, no HTTP between agents.
 LLM access via any OpenAI-compatible endpoint (default: AIML API).
 """
 
-import os
 import re
 import json
 import time
 import logging
-from pathlib import Path
-from datetime import datetime, timezone
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from openai import OpenAI
+# The agent runtime + registry live in agent_core (the "what an agent is").
+# This module owns only the orchestration (the "how they work together").
+from agent_core import (
+    AGENTS,
+    RISK_EVALUATOR,
+    ALL_AGENTS as _ALL_AGENTS,
+    AGENT_STATUSES,
+    AGENT_ELAPSED,
+    set_status_listener,
+    update_agent_status,
+    load_prompt as _load_prompt,
+    invalidate_prompt_cache,
+    get_client as _get_client,
+    _get_secret,
+)
 
-from data_layer import get_all_live_data
+# Importing tools attaches the scouts' data tools to the registry (see tools.py).
+import tools  # noqa: F401,E402
+
+# Observability: every agent step is recorded to a replayable JSONL trace.
+import tracing  # noqa: E402
+from agent_core import set_trace_listener  # noqa: E402
+
+set_trace_listener(tracing.agent_step_listener)
 
 # Load .env for local development
 try:
@@ -46,65 +64,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Secret resolution (env / .env)
-# ---------------------------------------------------------------------------
-def _get_secret(key: str, default: str = "") -> str:
-    """Read a secret from the environment (.env is loaded above)."""
-    return os.getenv(key, default)
-
-# ---------------------------------------------------------------------------
-# LLM client (OpenAI-compatible, lazy singleton)
-#
-# Provider-agnostic: any OpenAI-compatible endpoint works.
-#   LLM_BASE_URL — default https://api.aimlapi.com/v1
-#   LLM_API_KEY  — falls back to AIML_API_KEY, then OPENAI_API_KEY
-# ---------------------------------------------------------------------------
-_client: Optional[OpenAI] = None
-
-
-def _get_client() -> OpenAI:
-    """Lazily initialise and return the OpenAI-compatible LLM client."""
-    global _client
-    if _client is None:
-        api_key = (
-            _get_secret("LLM_API_KEY")
-            or _get_secret("AIML_API_KEY")
-            or _get_secret("OPENAI_API_KEY")
-        )
-        if not api_key:
-            logger.warning("No LLM API key set (LLM_API_KEY / AIML_API_KEY) — agent calls will fail")
-        _client = OpenAI(
-            api_key=api_key,
-            base_url=_get_secret("LLM_BASE_URL", "https://api.aimlapi.com/v1"),
-        )
-    return _client
-
-
-# ---------------------------------------------------------------------------
-# Agent model routing table
-# ---------------------------------------------------------------------------
-_MODEL_MAP: dict[str, str] = {
-    "orchestrator":       "claude-sonnet-4-6",        # was opus — sonnet is 3-5x faster
-    "signal_harvester":   "claude-haiku-4-5-20251001",
-    "narrative_intel":    "claude-sonnet-4-6",
-    "macro_watchdog":     "claude-sonnet-4-6",
-    "competitive_intel":  "claude-sonnet-4-6",
-    "risk_synthesizer":   "claude-sonnet-4-6",        # was opus — sonnet sufficient
-    "strategy_commander": "claude-sonnet-4-6",
-    "market_oracle":      "claude-haiku-4-5-20251001",
-}
-
-
-def _model_for(agent_name: str) -> str:
-    """Resolve the model for an agent. VIGIL_MODEL env var overrides all agents."""
-    override = _get_secret("VIGIL_MODEL")
-    if override:
-        return override
-    return _MODEL_MAP.get(agent_name, "claude-sonnet-4-6")
-
-# All 8 agent names in pipeline order
-_ALL_AGENTS: list[str] = list(_MODEL_MAP.keys())
+# Agent runtime (models, LLM client, status, prompts) now lives in agent_core.
+# `AGENTS`, `_ALL_AGENTS`, `_get_client`, `_get_secret`, `_load_prompt`, and the
+# status functions are imported at the top of this module.
 
 # Intents that produce full risk analysis → update the dashboard strip
 # INVESTMENT_QUERY and MARKET_PULSE use Oracle / brief-mode → skip strip update
@@ -117,172 +79,171 @@ _STRIP_UPDATE_INTENTS: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
-# System prompt loader
-# ---------------------------------------------------------------------------
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
-_prompt_cache: dict[str, str] = {}
-
-
-def _load_prompt(agent_name: str) -> str:
-    """
-    Load the system prompt for an agent from /prompts/{agent_name}.txt.
-    Caches the result in memory after first read.
-
-    Returns empty string if the file is missing — agent will run with
-    no system prompt rather than crashing the pipeline.
-    """
-    if agent_name in _prompt_cache:
-        return _prompt_cache[agent_name]
-
-    prompt_file = _PROMPTS_DIR / f"{agent_name}.txt"
-    try:
-        content = prompt_file.read_text(encoding="utf-8").strip()
-        _prompt_cache[agent_name] = content
-        logger.debug("Prompt loaded for %s (%d chars)", agent_name, len(content))
-        return content
-    except FileNotFoundError:
-        logger.warning("Prompt file not found: %s (agent will run without system prompt)", prompt_file)
-        _prompt_cache[agent_name] = ""
-        return ""
-    except Exception as exc:
-        logger.error("Failed to load prompt for %s: %s", agent_name, exc)
-        _prompt_cache[agent_name] = ""
-        return ""
-
-
-def invalidate_prompt_cache() -> None:
-    """Force reload of all prompt files on next agent call (useful during development)."""
-    _prompt_cache.clear()
-
-
-# ---------------------------------------------------------------------------
-# FUNCTION: update_agent_status
-# ---------------------------------------------------------------------------
-
-_VALID_STATUSES = {"idle", "queued", "running", "complete", "error"}
-
-# Module-level status registry — the UI layer reads these (or subscribes via
-# set_status_listener) to render the agent flow visualisation.
-AGENT_STATUSES: dict[str, str] = {a: "idle" for a in _ALL_AGENTS}
-AGENT_ELAPSED: dict[str, Optional[float]] = {a: None for a in _ALL_AGENTS}
-
-_status_listener = None
-
-
-def set_status_listener(callback) -> None:
-    """Register a callable(agent_name, status, elapsed) invoked on every status change."""
-    global _status_listener
-    _status_listener = callback
-
-
-def update_agent_status(
-    agent_name: str,
-    status: str,
-    elapsed: Optional[float] = None,
-) -> None:
-    """
-    Update the per-agent status and elapsed time.
-
-    Args:
-        agent_name: One of the 8 Vigil agent identifiers.
-        status:     One of "idle" | "queued" | "running" | "complete" | "error"
-        elapsed:    Seconds the agent took to complete (optional).
-    """
-    if status not in _VALID_STATUSES:
-        logger.warning("Invalid status '%s' for agent '%s' — ignored", status, agent_name)
-        return
-
-    AGENT_STATUSES[agent_name] = status
-    if elapsed is not None:
-        AGENT_ELAPSED[agent_name] = round(elapsed, 2)
-
-    logger.debug(
-        "Agent status: %s → %s%s",
-        agent_name, status,
-        f" ({elapsed:.2f}s)" if elapsed is not None else "",
-    )
-
-    if callable(_status_listener):
-        try:
-            _status_listener(agent_name, status, elapsed)
-        except Exception:
-            pass  # Never crash the pipeline over a UI notification failure
-
-
-# ---------------------------------------------------------------------------
-# FUNCTION: run_agent
+# FUNCTION: run_agent  (thin shim → the Agent registry in agent_core)
 # ---------------------------------------------------------------------------
 
 def run_agent(
     agent_name: str,
-    system_prompt: str,
+    system_prompt: str,  # noqa: ARG001 — kept for call-site compatibility; the
+                         # Agent owns its instructions, so this arg is ignored.
     user_content: str,
     max_tokens: int = 2000,
 ) -> str:
     """
-    Execute a single agent call via the AIML API.
+    Run one agent by name via the `AGENTS` registry in agent_core.
 
-    Updates agent_statuses: idle → running → complete | error
-    Logs elapsed time per agent.
+    Each agent already owns its own instructions/model/guardrails (see
+    `agent_core.Agent`), so this shim just looks it up and executes. The
+    `system_prompt` argument is retained so existing call sites keep working;
+    it is intentionally ignored (the registry is the single source of truth).
 
-    Args:
-        agent_name:    Agent identifier (used for model lookup and status updates).
-        system_prompt: The agent's system prompt (loaded from /prompts/).
-        user_content:  The assembled user-side input for this agent.
-        max_tokens:    Maximum response length.
-
-    Returns:
-        The agent's text response, or a safe error placeholder string.
+    Returns the agent's text response, or a safe labelled placeholder on error.
     """
-    update_agent_status(agent_name, "running")
-    start_ts = time.perf_counter()
-
-    try:
-        client = _get_client()
-        model = _model_for(agent_name)
-
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": user_content})
-
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.35,
-        )
-
-        elapsed = time.perf_counter() - start_ts
-        update_agent_status(agent_name, "complete", elapsed)
-
-        content = (response.choices[0].message.content or "").strip()
-        logger.info(
-            "✓ %s completed in %.2fs | model: %s | output: %d chars",
-            agent_name, elapsed, model, len(content),
-        )
-        return content
-
-    except Exception as exc:
-        elapsed = time.perf_counter() - start_ts
-        update_agent_status(agent_name, "error", elapsed)
-        logger.error(
-            "✗ %s failed after %.2fs: %s",
-            agent_name, elapsed, str(exc)[:120],
-        )
-        return (
-            f"[{agent_name.upper().replace('_', ' ')} UNAVAILABLE — "
-            f"analysis for this section could not be completed. Error: {str(exc)[:80]}]"
-        )
+    agent = AGENTS.get(agent_name)
+    if agent is None:
+        logger.error("Unknown agent '%s' — no registry entry", agent_name)
+        return f"[{agent_name.upper().replace('_', ' ')} UNAVAILABLE — not registered]"
+    return agent.run(user_content, max_tokens=max_tokens)
 
 
 # ---------------------------------------------------------------------------
 # FUNCTION: parse_orchestrator_response
 # ---------------------------------------------------------------------------
 
+def extract_json_block(text: str) -> Optional[dict]:
+    """
+    Find and parse the first JSON object in an LLM response.
+
+    Handles the ways models actually emit JSON: bare, inside ```json fences,
+    or preceded/followed by prose. Returns None if nothing parseable is found —
+    never raises. This is the structured seam between LLM output and code.
+    """
+    if not text:
+        return None
+    # Prefer a fenced block if present
+    fence = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+    candidates = [fence.group(1)] if fence else []
+    # Fall back to the outermost brace span
+    start = text.find("{")
+    if start != -1:
+        candidates.append(text[start : text.rfind("}") + 1])
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
+def _clamp_score(value) -> Optional[int]:
+    """Coerce a score-ish value to an int in [0, 100], or None."""
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _map_structured_response(obj: dict) -> dict:
+    """
+    Map a JSON contract object (Orchestrator or Risk Synthesizer) onto the
+    canonical result dict. Field-by-field defensive: a malformed field degrades
+    to its default instead of poisoning the rest.
+    """
+    result: dict = {
+        "intent_type": None,
+        "agents_to_activate": [],
+        "risk_score": None,
+        "risk_tier": None,
+        "verdict": None,
+        "top_risks": [],
+        "top_actions": [],
+        "executive_brief": None,
+        "full_playbook": None,
+        "market_pulse_summary": None,
+        "score_breakdown": {},
+        "oracle_verdict": None,
+    }
+
+    intent = obj.get("intent_type")
+    if isinstance(intent, str) and re.fullmatch(r"[A-Z_]{4,30}", intent.strip()):
+        result["intent_type"] = intent.strip()
+
+    agents = obj.get("agents_needed") or obj.get("agents_to_activate")
+    if isinstance(agents, list):
+        result["agents_to_activate"] = [str(a).strip() for a in agents if str(a).strip()]
+
+    result["risk_score"] = _clamp_score(obj.get("risk_score"))
+    tier = obj.get("risk_tier")
+    if isinstance(tier, str) and tier.strip():
+        result["risk_tier"] = tier.strip().upper()
+
+    for key in ("verdict", "executive_brief", "market_pulse_summary"):
+        val = obj.get(key)
+        if isinstance(val, str) and val.strip():
+            result[key] = val.strip()
+
+    risks = obj.get("top_risks")
+    if isinstance(risks, list):
+        for r in risks[:3]:
+            if not isinstance(r, dict):
+                continue
+            name = str(r.get("name") or "").strip()
+            if not name:
+                continue
+            result["top_risks"].append({
+                "name": name,
+                "probability": _clamp_score(r.get("probability")) or 50,
+                "severity": str(r.get("severity") or "MEDIUM").strip().upper(),
+                "detail": str(r.get("detail") or "").strip()[:300],
+                "action_if_ignored": str(r.get("action_if_ignored") or "").strip(),
+                "timeline": str(r.get("timeline") or "").strip(),
+                "owner": str(r.get("owner") or "Leadership").strip(),
+            })
+
+    actions = obj.get("top_actions")
+    if isinstance(actions, list):
+        for a in actions[:3]:
+            if not isinstance(a, dict):
+                continue
+            title = str(a.get("title") or "").strip()
+            if not title:
+                continue
+            result["top_actions"].append({
+                "title": title[:60],
+                "detail": str(a.get("detail") or "").strip()[:300],
+                "deadline": str(a.get("deadline") or "").strip(),
+                "owner": str(a.get("owner") or "Leadership").strip(),
+                "urgency": str(a.get("urgency") or "HIGH").strip().upper(),
+            })
+
+    breakdown = obj.get("score_breakdown")
+    if isinstance(breakdown, dict):
+        bd = {}
+        for key in ("macro", "market", "narrative", "competitive"):
+            score = _clamp_score(breakdown.get(key) or breakdown.get(key.upper()))
+            if score is not None:
+                bd[key] = score
+        result["score_breakdown"] = bd
+
+    oracle = obj.get("oracle_verdict")
+    if isinstance(oracle, str) and oracle.strip().upper() in ("BUY", "WAIT", "CAUTION", "AVOID"):
+        result["oracle_verdict"] = oracle.strip().upper()
+
+    return result
+
+
 def parse_orchestrator_response(response: str) -> dict:
     """
-    Extract structured fields from a Vigil-formatted markdown response.
+    Extract structured fields from an agent response.
+
+    JSON-first: agents are instructed to answer with a JSON contract
+    (see prompts/orchestrator.txt, prompts/risk_synthesizer.txt); when a valid
+    JSON object is found it is mapped defensively onto the result dict. If no
+    JSON parses — an older prompt, a chatty model, a truncated reply — the
+    legacy markdown/regex path below still extracts what it can, so a format
+    slip degrades quality instead of breaking the pipeline.
 
     Used on both the Orchestrator output and the Risk Synthesizer output.
     Every field extraction is wrapped independently — one parse failure
@@ -319,6 +280,17 @@ def parse_orchestrator_response(response: str) -> dict:
     if not response or not response.strip():
         return result
 
+    # ── JSON-FIRST PATH (the structured contract) ────────────────────────────
+    json_obj = extract_json_block(response)
+    if json_obj is not None:
+        mapped = _map_structured_response(json_obj)
+        # Only trust the JSON path if it produced at least one meaningful field;
+        # otherwise fall through to the legacy regex extraction.
+        if any([mapped["intent_type"], mapped["risk_score"] is not None,
+                mapped["verdict"], mapped["top_risks"], mapped["executive_brief"]]):
+            return mapped
+
+    # ── LEGACY MARKDOWN/REGEX PATH (fallback) ────────────────────────────────
     # ── INTENT TYPE ──────────────────────────────────────────────────────────
     try:
         # New format: INTENT_TYPE: FULL_BRIEFING
@@ -551,9 +523,9 @@ def parse_orchestrator_response(response: str) -> dict:
                     for title, detail in action_items_simple[:3]:
                         result["top_actions"].append({
                             "title": title.strip(),
-                            "owner": "Leadership",
-                            "deadline": "This week",
-                            "urgency": "HIGH",
+                            "owner": "",         # don't invent an owner
+                            "deadline": "",      # don't invent a deadline
+                            "urgency": "",
                             "detail": detail.strip(),
                         })
                 else:
@@ -579,10 +551,9 @@ def parse_orchestrator_response(response: str) -> dict:
     except Exception:
         pass
 
-    # ── DEFAULT INTENT ────────────────────────────────────────────────────────
-    if not result["intent_type"]:
-        result["intent_type"] = "FULL_BRIEFING"
-
+    # No default intent here: an unclassified response stays None so the
+    # pipeline's deterministic fallback (keyword routing → FULL_BRIEFING)
+    # can make the routing decision instead of a silent parser default.
     return result
 
 
@@ -679,15 +650,22 @@ def _build_business_context(
     return f"USER QUERY (infer business context from this message):\n{user_message}"
 
 
-def _build_signal_input(business_context: str, live_data_text: str) -> str:
-    """Assemble the Signal Harvester input payload."""
+def _build_signal_input(business_context: str) -> str:
+    """
+    Assemble the Signal Harvester input.
+
+    No market data is stuffed in here anymore — the Signal Harvester is a
+    tool-using agent and pulls its own live data (macro pulse, sectors,
+    headlines) via its tools. We just give it the business context and tell it
+    to gather what's relevant.
+    """
     return json.dumps(
         {
             "business_context": business_context,
-            "live_market_data": live_data_text,
             "instruction": (
-                "Generate a comprehensive Signal Harvest Report based on "
-                "the business context and live market data above."
+                "Call your tools to gather the live market data relevant to this "
+                "business context (macro pulse, sector performance, headlines), "
+                "then produce the Signal Harvest Report."
             ),
         },
         indent=2,
@@ -715,51 +693,160 @@ def _build_synthesis_input(
     return "\n\n".join(parts)
 
 
-def _format_live_data_as_text(live_data: dict) -> str:
-    """
-    Convert the get_all_live_data() payload into a compact text block
-    suitable for LLM context injection (avoids raw JSON verbosity).
-    """
-    lines = ["[LIVE MARKET DATA — VIGIL DATA LAYER]"]
+# (Live market data is no longer pre-formatted for prompt injection — scout
+# agents fetch it through their tools. See tools.py.)
 
-    pulse = live_data.get("pulse", {})
-    vix_d = pulse.get("vix", {})
-    spx_d = pulse.get("spx", {})
-    tnx_d = pulse.get("treasury_10y", {})
-    fg_d = pulse.get("fear_greed", {})
 
-    lines.append(
-        f"VIX: {vix_d.get('value', 'N/A')} ({vix_d.get('level', 'N/A')}) | "
-        f"S&P500 7d: {spx_d.get('pct_7d', 'N/A')}% ({spx_d.get('trend', 'N/A')}) | "
-        f"10Y Yield: {tnx_d.get('yield_pct', 'N/A')}% ({tnx_d.get('yield_curve', 'N/A')}) | "
-        f"Regime: {pulse.get('market_regime', 'N/A')} | "
-        f"Fear/Greed: {fg_d.get('score', 'N/A')}/100 ({fg_d.get('label', 'N/A')})"
+def _wiki_context(max_chars: int = 6000) -> str:
+    """
+    Load the distilled knowledge notes from workspace/wiki/ (built by /ingest).
+
+    These notes ground every run in the user's own documents. They are an INDEX:
+    agents can still read the originals via the docs tools — per the wiki's
+    lossy-summarization warning, summaries never replace sources. Empty string
+    when no notes exist (the feature is fully optional).
+    """
+    try:
+        from tools import workspace_dir
+        wiki = workspace_dir("wiki")
+        if not wiki.is_dir():
+            return ""
+        parts: list[str] = []
+        total = 0
+        for path in sorted(wiki.glob("*.md")):
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+            if not text:
+                continue
+            text = text[:1500]
+            parts.append(f"--- {path.name} ---\n{text}")
+            total += len(text)
+            if total > max_chars:
+                break
+        if not parts:
+            return ""
+        return (
+            "[COMPANY KNOWLEDGE BASE — distilled from the user's own documents "
+            "via /ingest. Company facts here come from the user; verify market "
+            "claims against live tools.]\n" + "\n\n".join(parts)
+        )
+    except Exception as exc:
+        logger.warning("wiki context unavailable: %s", str(exc)[:80])
+        return ""
+
+
+def _gate_upstream(agent_name: str, output: str) -> str:
+    """
+    Inter-step error correction: validate one wave's output before it feeds the
+    next (errors compound across chained steps — catch them at the seam, not at
+    the end).
+
+    A failed or degenerate output (unavailable placeholder, near-empty text) is
+    replaced with an explicit, honest note so downstream agents analyze from
+    the remaining context and say what's missing — instead of reasoning over
+    garbage as if it were data.
+    """
+    text = (output or "").strip()
+    is_placeholder = text.startswith("[") and "UNAVAILABLE" in text
+    if text and not is_placeholder and len(text) >= 80:
+        return output
+    logger.warning(
+        "gate: %s output unusable (%d chars%s) — downstream agents get an "
+        "explicit data-gap note", agent_name, len(text),
+        ", placeholder" if is_placeholder else "",
+    )
+    return (
+        f"[{agent_name.upper().replace('_', ' ')} DATA UNAVAILABLE for this run. "
+        "Analyze from the business context you have. State explicitly which "
+        "market data is missing. Do NOT invent market figures.]"
     )
 
-    sectors = live_data.get("sectors", {})
-    if sectors:
-        sector_parts = []
-        for name, data in sectors.items():
-            pct = data.get("pct_7d")
-            pct_str = f"{pct:+.1f}%" if pct is not None else "N/A"
-            sector_parts.append(f"{name}: {pct_str}")
-        lines.append("SECTORS (7d): " + " | ".join(sector_parts))
 
-    headlines = live_data.get("headlines", [])
-    if headlines:
-        lines.append("TOP HEADLINES:")
-        for i, h in enumerate(headlines[:5], 1):
-            sentiment = h.get("sentiment", "neutral").upper()
-            title = h.get("title", "")
-            source = h.get("source", "")
-            lines.append(f"  {i}. [{sentiment}] {title} — {source}")
+def _render_synthesis_text(parsed: dict) -> str:
+    """
+    Render the Risk Synthesizer's structured output as readable text.
 
-    lines.append(
-        f"Data quality: {live_data.get('data_quality', 'UNKNOWN')} | "
-        f"Fetched: {live_data.get('fetched_at', 'N/A')}"
-    )
-    lines.append("[END LIVE DATA]")
-    return "\n".join(lines)
+    The synthesizer answers in JSON (its contract); this deterministic renderer
+    is what humans see in the playbook. Presentation belongs to code, not to
+    the model.
+    """
+    lines: list[str] = []
+    score = parsed.get("risk_score")
+    tier = parsed.get("risk_tier") or ""
+    if score is not None:
+        lines.append(f"RISK SCORE: {score}/100" + (f" ({tier})" if tier else ""))
+    if parsed.get("verdict"):
+        lines.append(f"VERDICT: {parsed['verdict']}")
+
+    risks = parsed.get("top_risks") or []
+    if risks:
+        lines.append("\nTOP RISKS:")
+        for i, r in enumerate(risks, 1):
+            head = f"{i}. {r.get('name', 'Risk')}"
+            probability = r.get("probability")
+            if probability is not None:
+                head += f" — probability {probability}%"
+            if r.get("severity"):
+                head += f", severity {r['severity']}"
+            lines.append(head)
+            for key, label in [("detail", "   "), ("action_if_ignored", "   If ignored: "),
+                               ("timeline", "   Timeline: "), ("owner", "   Owner: ")]:
+                if r.get(key):
+                    lines.append(f"{label}{r[key]}")
+
+    breakdown = parsed.get("score_breakdown") or {}
+    if breakdown:
+        parts = " | ".join(f"{k}: {v}" for k, v in breakdown.items())
+        lines.append(f"\nSCORE BREAKDOWN: {parts}")
+
+    return "\n".join(lines) or "(no structured synthesis available)"
+
+
+def _evaluate_and_refine(synth_out: str, synth_input: str) -> str:
+    """
+    Optional evaluator-optimizer pass (Anthropic's 5th pattern).
+
+    A cheap, near-deterministic critic (the Risk Evaluator) grades the Risk
+    Synthesizer's briefing against a rubric. On a REVISE verdict, the synthesizer
+    runs once more with the critic's feedback and that improved briefing is used.
+
+    Gated by the VIGIL_ENABLE_EVALUATOR env var: it costs one (or two) extra LLM
+    round trips, so it is off by default and turned on when quality matters more
+    than latency. Never raises — any failure falls back to the original briefing.
+    """
+    if not _get_secret("VIGIL_ENABLE_EVALUATOR"):
+        return synth_out
+
+    try:
+        verdict_text = RISK_EVALUATOR.run(
+            f"UPSTREAM SIGNALS + CONTEXT:\n{synth_input}\n\n"
+            f"RISK SYNTHESIZER BRIEFING TO GRADE:\n{synth_out}"
+        )
+        # JSON contract first; legacy EVAL_VERDICT format as fallback.
+        eval_obj = extract_json_block(verdict_text) or {}
+        verdict = str(eval_obj.get("verdict") or "").strip().upper()
+        feedback = str(eval_obj.get("feedback") or "").strip()
+        if verdict not in ("PASS", "REVISE"):
+            m = re.search(r"EVAL_VERDICT[:\s\"]+(PASS|REVISE)", verdict_text, re.IGNORECASE)
+            verdict = m.group(1).upper() if m else "PASS"
+            fb = re.search(r"EVAL_FEEDBACK[:\s]+(.+)", verdict_text, re.IGNORECASE | re.DOTALL)
+            feedback = (fb.group(1).strip() if fb else verdict_text.strip())
+
+        if verdict != "REVISE":
+            logger.info("Evaluator verdict: PASS — keeping original synthesis")
+            return synth_out
+
+        feedback = feedback[:1200]
+        logger.info("Evaluator verdict: REVISE — re-running synthesizer with feedback")
+        return run_agent(
+            "risk_synthesizer",
+            _load_prompt("risk_synthesizer"),
+            f"{synth_input}\n\n[EVALUATOR FEEDBACK — revise your briefing to fix "
+            f"these specific issues, keeping the same output format:]\n{feedback}",
+            max_tokens=2000,
+        )
+    except Exception as exc:
+        logger.error("Evaluator pass failed (%s) — using original synthesis", str(exc)[:80])
+        return synth_out
 
 
 # ---------------------------------------------------------------------------
@@ -790,33 +877,31 @@ def run_pipeline(
     """
     pipeline_start = time.perf_counter()
     _reset_pipeline_statuses()
+    vigil_trace_company = (profile or {}).get("company_name") or (profile or {}).get("name") or ""
+    tracing.recorder.start_run(user_message, profile_company=str(vigil_trace_company))
 
     # ── STEP 1: PREPARE ──────────────────────────────────────────────────────
     profile_was_used = has_sufficient_profile(profile)
+    wiki_ctx = _wiki_context()
     full_context = "\n\n".join(
         part for part in [
             get_profile_context_string(profile) if profile_was_used else "",
+            wiki_ctx,
             _history_context_string(history),
         ] if part
     )
     enhanced_message = user_message
 
-    live_data: dict = {}
-    live_data_text = ""
-    try:
-        live_data = get_all_live_data()
-        live_data_text = _format_live_data_as_text(live_data)
-    except Exception as exc:
-        logger.error("Live data fetch failed: %s — pipeline continues without it", exc)
+    # No blanket market pre-fetch: the scout agents (Signal Harvester, Market
+    # Oracle) pull the live data they need via their tools. This removes a slow
+    # sequential yfinance sweep from every request and only fetches what the
+    # query actually calls for.
 
-    # Fix 2&3 — Context verification logging
     logger.info(
-        "STEP 1 complete — profile_used: %s | full_context: %d chars | "
-        "enhanced_msg: %d chars | live_data_quality: %s",
+        "STEP 1 complete — profile_used: %s | full_context: %d chars | enhanced_msg: %d chars",
         profile_was_used,
         len(full_context),
         len(enhanced_message),
-        live_data.get("data_quality", "UNKNOWN"),
     )
     if not profile_was_used:
         logger.debug("No profile active — pipeline will run in GENERIC market-analysis mode")
@@ -830,7 +915,6 @@ def run_pipeline(
         part for part in [
             full_context,
             f"USER REQUEST:\n{enhanced_message}",
-            live_data_text,
         ] if part.strip()
     )
 
@@ -868,13 +952,20 @@ def run_pipeline(
     )
 
     parsed_orch = parse_orchestrator_response(orchestrator_response)
-    intent_type: str = parsed_orch.get("intent_type") or "FULL_BRIEFING"
+    # Deterministic routing backstop ("hard-code what you can"): when the
+    # Orchestrator fails to classify — error, prose-only reply, parse miss —
+    # a message that plainly matches investment keywords routes to the Oracle
+    # by code, not by hoping the LLM obeyed the hint.
+    _fallback_intent = "INVESTMENT_QUERY" if _inv_kw.search(user_message) else "FULL_BRIEFING"
+    intent_type: str = parsed_orch.get("intent_type") or _fallback_intent
     logger.info("Pipeline routing → intent: %s", intent_type)
 
     # ── STEP 3: ROUTE TO SPECIALISTS ─────────────────────────────────────────
     specialist_outputs: dict[str, str] = {}
     agents_activated: list[str] = ["orchestrator"]
     business_context = _build_business_context(profile, user_message)
+    if wiki_ctx:
+        business_context += "\n\n" + wiki_ctx
 
     # ── INTENT: INVESTMENT_QUERY (2 agents) ──────────────────────────────────
     if intent_type == "INVESTMENT_QUERY":
@@ -885,9 +976,10 @@ def run_pipeline(
         signal_out = run_agent(
             "signal_harvester",
             _load_prompt("signal_harvester"),
-            _build_signal_input(business_context, live_data_text),
+            _build_signal_input(business_context),
             max_tokens=2000,
         )
+        signal_out = _gate_upstream("signal_harvester", signal_out)
         specialist_outputs["signal_harvester"] = signal_out
         agents_activated.append("signal_harvester")
 
@@ -912,9 +1004,10 @@ def run_pipeline(
         signal_out = run_agent(
             "signal_harvester",
             _load_prompt("signal_harvester"),
-            _build_signal_input(business_context, live_data_text),
+            _build_signal_input(business_context),
             max_tokens=2000,
         )
+        signal_out = _gate_upstream("signal_harvester", signal_out)
         specialist_outputs["signal_harvester"] = signal_out
         agents_activated.append("signal_harvester")
 
@@ -965,9 +1058,10 @@ def run_pipeline(
         signal_out = run_agent(
             "signal_harvester",
             _load_prompt("signal_harvester"),
-            _build_signal_input(business_context, live_data_text),
+            _build_signal_input(business_context),
             max_tokens=2000,
         )
+        signal_out = _gate_upstream("signal_harvester", signal_out)
         specialist_outputs["signal_harvester"] = signal_out
         agents_activated.append("signal_harvester")
 
@@ -1010,9 +1104,10 @@ def run_pipeline(
         signal_out = run_agent(
             "signal_harvester",
             _load_prompt("signal_harvester"),
-            _build_signal_input(business_context, live_data_text),
+            _build_signal_input(business_context),
             max_tokens=2000,
         )
+        signal_out = _gate_upstream("signal_harvester", signal_out)
         specialist_outputs["signal_harvester"] = signal_out
         agents_activated.append("signal_harvester")
 
@@ -1057,9 +1152,10 @@ def run_pipeline(
         signal_out = run_agent(
             "signal_harvester",
             _load_prompt("signal_harvester"),
-            _build_signal_input(business_context, live_data_text),
+            _build_signal_input(business_context),
             max_tokens=2500,
         )
+        signal_out = _gate_upstream("signal_harvester", signal_out)
         specialist_outputs["signal_harvester"] = signal_out
         agents_activated.append("signal_harvester")
 
@@ -1115,6 +1211,10 @@ def run_pipeline(
             synth_input,
             max_tokens=2000,
         )
+        # Pattern 5 — evaluator-optimizer: a critic grades the briefing and can
+        # trigger one revision. Gated by VIGIL_ENABLE_EVALUATOR (off by default,
+        # since it adds a round trip — a deliberate latency/quality trade-off).
+        synth_out = _evaluate_and_refine(synth_out, synth_input)
         specialist_outputs["risk_synthesizer"] = synth_out
         agents_activated.append("risk_synthesizer")
 
@@ -1148,7 +1248,9 @@ def run_pipeline(
         parsed_orch.get("top_actions") or []
     )
 
-    # Compile full_playbook from all specialist outputs (excluding market_oracle)
+    # Compile full_playbook from all specialist outputs (excluding market_oracle).
+    # JSON-contract agents (risk_synthesizer) get their structured output rendered
+    # to readable text — users never see raw JSON.
     playbook_parts = []
     for agent_key in [
         "signal_harvester", "narrative_intel", "macro_watchdog",
@@ -1156,17 +1258,30 @@ def run_pipeline(
     ]:
         if agent_key in specialist_outputs:
             section_title = agent_key.upper().replace("_", " ")
+            section_body = specialist_outputs[agent_key]
+            if agent_key == "risk_synthesizer" and synth_parsed.get("risk_score") is not None:
+                section_body = _render_synthesis_text(synth_parsed)
             playbook_parts.append(
                 f"{'━' * 60}\n{section_title}\n{'━' * 60}\n"
-                f"{specialist_outputs[agent_key]}"
+                f"{section_body}"
             )
 
     full_playbook = "\n\n".join(playbook_parts) or None
 
-    # Determine primary display response
+    # Determine primary display response. The Orchestrator answers in JSON now,
+    # so prefer its parsed narrative fields; raw text is the fallback for the
+    # legacy/degraded path only.
+    orch_narrative = "\n\n".join(
+        part for part in [
+            parsed_orch.get("executive_brief") or "",
+            f"Verdict: {parsed_orch['verdict']}" if parsed_orch.get("verdict") else "",
+        ] if part
+    )
     primary_response = (
-        orchestrator_response if orchestrator_response
-        else (full_playbook or "Analysis unavailable.")
+        orch_narrative
+        or (orchestrator_response if not extract_json_block(orchestrator_response or "") else "")
+        or full_playbook
+        or "Analysis unavailable."
     )
 
     result: dict = {
@@ -1193,18 +1308,29 @@ def run_pipeline(
         "primary_response":    primary_response,
     }
 
-    # Persistence is the caller's responsibility (see main.py) — the engine
-    # stays a pure function: (message, profile, history) → result dict.
-    # STRIP_UPDATE_INTENTS tells callers which intents should repaint the
-    # dashboard risk strip; Oracle/pulse runs preserve previous state.
+    # Persistence is the caller's responsibility (see the CLI/MCP front-ends) —
+    # the engine stays a pure function: (message, profile, history) → result dict.
+    # STRIP_UPDATE_INTENTS tells callers which intents represent a full risk
+    # re-assessment; Oracle/pulse runs preserve previous state.
     result["updates_risk_strip"] = intent_type in _STRIP_UPDATE_INTENTS
 
+    # Close the observability trace and surface it in the result.
+    trace_info = tracing.recorder.end_run({
+        "intent_type": intent_type,
+        "risk_score": final_risk_score,
+        "total_time": total_time,
+    })
+    result["trace_path"] = trace_info["path"]
+    result["token_usage"] = trace_info["usage"]
+
     logger.info(
-        "Pipeline complete — intent: %s | agents: %d | risk_score: %s | time: %.2fs",
+        "Pipeline complete — intent: %s | agents: %d | risk_score: %s | time: %.2fs | tokens: %d+%d",
         intent_type,
         len(agents_activated),
         final_risk_score,
         total_time,
+        trace_info["usage"]["prompt"],
+        trace_info["usage"]["completion"],
     )
 
     return result
