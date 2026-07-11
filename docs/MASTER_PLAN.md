@@ -116,7 +116,11 @@ console w/ wizard + live wave view, web app removed.
       analyst + oracle + synthesizer prompts against `run_evals.py` until median
       judge faithfulness ≥ the agreed bar. Needs the eval-bar sign-off (§7). Each
       iteration costs a live run — batch deliberately.
-- [ ] **T9 — Ship**: verify-vigil pass, honesty-auditor pass, commit series, USER GATE: push + PR approval, LinkedIn blurb from the honest line.
+- [~] **T9 — Ship**: ✅ verify-vigil pass · ✅ honesty-auditor pass (6 findings
+      fixed: CONTRIBUTING/AGENTS rewritten, "8 agents"→"8 components", invented
+      action deadline removed, fear/greed UNKNOWN) · ✅ honest 6-commit series on
+      `revamp/single-process` (2026-07-11). **OPEN (USER GATE):** push + PR to
+      main — user's approval. Then LinkedIn blurb from the honest line.
 
 ## 7. Standing user actions
 - ⚠️ **REVOKE the leaked AIML key** (git history is public) — still pending!
