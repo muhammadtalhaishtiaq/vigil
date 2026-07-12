@@ -22,8 +22,10 @@ key the engine degrades gracefully and says so — it never fabricates analysis.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
+import logging
 import argparse
 import threading
 from datetime import datetime, timezone
@@ -33,6 +35,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.live import Live
 from rich.text import Text
+from rich.spinner import Spinner
 
 import agent_core
 from agent_pipeline import run_pipeline, has_sufficient_profile
@@ -44,6 +47,19 @@ console = Console()
 _SESSION_ID = "cli"          # one local console session
 _HISTORY_LIMIT = 40          # turns kept on disk
 _DISCLAIMER = "Vigil analysis, not financial advice — verify independently."
+
+
+def _quiet_logs() -> None:
+    """
+    Keep the console clean: the engine's INFO logs (STEP 1…, HTTP Request…,
+    agent completed…) are for debugging, not for the user. Silence them to
+    WARNING+ unless VIGIL_DEBUG is set. Set once, at CLI startup.
+    """
+    if os.getenv("VIGIL_DEBUG"):
+        return
+    logging.getLogger().setLevel(logging.WARNING)
+    for noisy in ("httpx", "httpcore", "openai", "urllib3", "yfinance", "peewee"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 # status → (icon, rich style)
 _STATUS_STYLE = {
@@ -88,10 +104,30 @@ def _save_session(data: dict) -> None:
 # ---------------------------------------------------------------------------
 # Live agent-wave view
 # ---------------------------------------------------------------------------
+# Standalone agents (outside the 8-component briefing registry) shown in the
+# live view only when they're actually active this run.
+_EXTRA_ROWS = {
+    "concierge": "concierge — answers directly from your profile + docs",
+    "risk_evaluator": "critic — grades the briefing (evaluator-optimizer)",
+}
+
+
 def _agent_rows() -> list[str]:
-    rows = list(agent_core.ALL_AGENTS)
-    if agent_core.AGENT_STATUSES.get("risk_evaluator", "idle") != "idle":
-        rows.append("risk_evaluator")
+    """
+    Show only the components that actually participate in THIS query: the
+    orchestrator (always runs) plus any agent that is queued/running/done. Idle
+    components are hidden — so a quick conversation shows one row, while a full
+    briefing fills in its wave. No misleading "idle army".
+    """
+    rows = ["orchestrator"]
+    rows += [
+        a for a in agent_core.ALL_AGENTS
+        if a != "orchestrator" and agent_core.AGENT_STATUSES.get(a, "idle") != "idle"
+    ]
+    rows += [
+        name for name in _EXTRA_ROWS
+        if agent_core.AGENT_STATUSES.get(name, "idle") != "idle"
+    ]
     return rows
 
 
@@ -108,7 +144,7 @@ def _render_agents(title: str) -> Panel:
         elapsed = agent_core.AGENT_ELAPSED.get(name)
         icon, style = _STATUS_STYLE.get(status, ("○", "dim"))
         agent = agent_core.AGENTS.get(name)
-        role = agent.role if agent else "critic — grades the briefing (evaluator-optimizer)"
+        role = agent.role if agent else _EXTRA_ROWS.get(name, name)
         role = role.split(" — ")[-1] if " — " in role else role
         table.add_row(
             Text(icon, style=style),
@@ -120,8 +156,27 @@ def _render_agents(title: str) -> Panel:
     return Panel(table, title=f"[bold]{title}[/]", border_style="cyan")
 
 
+def _specialists_active() -> bool:
+    """True once any component beyond the orchestrator is engaged this run."""
+    for a in agent_core.ALL_AGENTS:
+        if a != "orchestrator" and agent_core.AGENT_STATUSES.get(a, "idle") != "idle":
+            return True
+    return any(agent_core.AGENT_STATUSES.get(n, "idle") != "idle" for n in _EXTRA_ROWS)
+
+
+def _render_live(title: str):
+    """
+    Adaptive live frame: a light "thinking" spinner while the router is just
+    classifying (so a greeting/conversation feels like chat, not machinery), and
+    the full agent-wave table once real agents engage.
+    """
+    if _specialists_active():
+        return _render_agents(title)
+    return Spinner("dots", text=Text(" Vigil is thinking…", style="cyan"))
+
+
 def _run_with_live_view(query: str, profile: dict | None, history: list | None, title: str) -> dict:
-    """Run the pipeline in a worker thread while rendering the live agent view."""
+    """Run the pipeline in a worker thread while rendering the adaptive live view."""
     holder: dict = {}
 
     def worker():
@@ -132,11 +187,13 @@ def _run_with_live_view(query: str, profile: dict | None, history: list | None, 
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
-    with Live(_render_agents(title), console=console, refresh_per_second=10) as live:
+    # transient=True: the live view (spinner or wave) clears when done, leaving a
+    # clean scrollback — the answer + footer print underneath it.
+    with Live(_render_live(title), console=console, refresh_per_second=12,
+              transient=True) as live:
         while thread.is_alive():
-            live.update(_render_agents(title))
-            time.sleep(0.1)
-        live.update(_render_agents(title))
+            live.update(_render_live(title))
+            time.sleep(0.08)
     thread.join()
 
     if "error" in holder:
@@ -489,6 +546,9 @@ def _handle_question(session: dict, question: str) -> None:
     console.print()
     if result.get("risk_score") is not None:
         _print_briefing(result)
+    elif result.get("intent_type") == "CONVERSATION":
+        # Chat, not analysis: just the reply — no agent footer, no disclaimer.
+        console.print(result.get("primary_response") or "…")
     elif result.get("oracle_output"):
         _print_text_result(result, "oracle_output")
     else:
@@ -674,6 +734,7 @@ def cmd_monitor(args) -> None:
 
 
 def main(argv=None) -> int:
+    _quiet_logs()
     parser = argparse.ArgumentParser(
         prog="vigil",
         description="Vigil — multi-agent financial risk intelligence. "

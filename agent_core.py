@@ -543,6 +543,19 @@ RISK_EVALUATOR = Agent(
     temperature=0.1,  # a critic should be near-deterministic
 )
 
+# The Concierge is the light "direct answer" path (also outside the briefing
+# registry). The Orchestrator routes DIRECT_QA here — quick questions about the
+# user's own company/data that need a grounded answer, not a full analysis wave.
+# It has the user's document tools; tools are attached in tools.py.
+CONCIERGE = Agent(
+    name="concierge",
+    role="Concierge — answers quick questions about the user's company/data "
+         "directly (with their docs), escalating to /brief only when analysis is needed.",
+    model=_HAIKU,
+    memory="profile + conversation + the user's documents",
+    max_tokens=900,
+)
+
 # The Document Distiller is a utility agent (also outside the briefing registry):
 # /ingest runs it once per workspace doc to build the wiki notes that ground
 # future briefings. Extraction, not judgment — hence Haiku at low temperature.

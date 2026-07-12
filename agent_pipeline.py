@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from agent_core import (
     AGENTS,
     RISK_EVALUATOR,
+    CONCIERGE,
     ALL_AGENTS as _ALL_AGENTS,
     AGENT_STATUSES,
     AGENT_ELAPSED,
@@ -164,6 +165,7 @@ def _map_structured_response(obj: dict) -> dict:
         "market_pulse_summary": None,
         "score_breakdown": {},
         "oracle_verdict": None,
+        "reply": None,
     }
 
     intent = obj.get("intent_type")
@@ -179,7 +181,7 @@ def _map_structured_response(obj: dict) -> dict:
     if isinstance(tier, str) and tier.strip():
         result["risk_tier"] = tier.strip().upper()
 
-    for key in ("verdict", "executive_brief", "market_pulse_summary"):
+    for key in ("verdict", "executive_brief", "market_pulse_summary", "reply"):
         val = obj.get(key)
         if isinstance(val, str) and val.strip():
             result[key] = val.strip()
@@ -275,6 +277,7 @@ def parse_orchestrator_response(response: str) -> dict:
         "market_pulse_summary": None,
         "score_breakdown": {},
         "oracle_verdict": None,
+        "reply": None,
     }
 
     if not response or not response.strip():
@@ -576,6 +579,10 @@ def _set_agents_idle(agents: list[str]) -> None:
 def _reset_pipeline_statuses() -> None:
     """Reset all agents to idle at the start of each pipeline run."""
     for agent in _ALL_AGENTS:
+        update_agent_status(agent, "idle")
+    # Standalone agents (outside the briefing registry) too, so a prior run's
+    # state doesn't linger in the live view.
+    for agent in ("concierge", "risk_evaluator", "doc_distiller"):
         update_agent_status(agent, "idle")
 
 
@@ -967,8 +974,31 @@ def run_pipeline(
     if wiki_ctx:
         business_context += "\n\n" + wiki_ctx
 
+    # ── INTENT: CONVERSATION (0 agents — the router already answered) ────────
+    # Greetings, meta/help ("what can you do?"), small talk. The Orchestrator
+    # resolves these itself in its one call; no analysis wave runs.
+    if intent_type == "CONVERSATION":
+        _set_agents_idle([a for a in _ALL_AGENTS if a != "orchestrator"])
+        reply = parsed_orch.get("reply") or parsed_orch.get("executive_brief")
+        specialist_outputs["conversation"] = reply or ""
+
+    # ── INTENT: DIRECT_QA (1 agent — the Concierge) ──────────────────────────
+    # A quick question about the user's own company/data that needs a direct
+    # answer, not a full market-analysis wave. One lightweight agent with the
+    # user's document tools answers it.
+    elif intent_type == "DIRECT_QA":
+        _set_agents_idle([a for a in _ALL_AGENTS if a != "orchestrator"])
+        concierge_out = CONCIERGE.run(
+            f"{business_context}\n\nUSER QUESTION:\n{user_message}\n\n"
+            "Answer directly and concisely using the profile and the user's "
+            "documents (search/read them if relevant). If the question really "
+            "needs full market analysis, say so and suggest /brief."
+        )
+        specialist_outputs["concierge"] = concierge_out
+        agents_activated.append("concierge")
+
     # ── INTENT: INVESTMENT_QUERY (2 agents) ──────────────────────────────────
-    if intent_type == "INVESTMENT_QUERY":
+    elif intent_type == "INVESTMENT_QUERY":
         _set_agents_queued(["signal_harvester", "market_oracle"])
         _set_agents_idle(["narrative_intel", "macro_watchdog", "competitive_intel",
                           "risk_synthesizer", "strategy_commander"])
@@ -1277,12 +1307,22 @@ def run_pipeline(
             f"Verdict: {parsed_orch['verdict']}" if parsed_orch.get("verdict") else "",
         ] if part
     )
-    primary_response = (
-        orch_narrative
-        or (orchestrator_response if not extract_json_block(orchestrator_response or "") else "")
-        or full_playbook
-        or "Analysis unavailable."
-    )
+    # Fast-path intents answer directly — surface their text as the response.
+    if intent_type == "CONVERSATION":
+        primary_response = (
+            specialist_outputs.get("conversation")
+            or orch_narrative
+            or "How can I help? Ask about your company's risk, an investment, or type /help."
+        )
+    elif intent_type == "DIRECT_QA":
+        primary_response = specialist_outputs.get("concierge") or orch_narrative or "No answer produced."
+    else:
+        primary_response = (
+            orch_narrative
+            or (orchestrator_response if not extract_json_block(orchestrator_response or "") else "")
+            or full_playbook
+            or "Analysis unavailable."
+        )
 
     result: dict = {
         "intent_type":      intent_type,

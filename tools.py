@@ -276,19 +276,22 @@ TOOL_READ_DOC = Tool(
     },
 )
 
-# Tool bundles per scout agent (analysts get none — they reason over scout output).
+# Tool bundles per agent (analysts get none — they reason over scout output).
 SIGNAL_HARVESTER_TOOLS = [TOOL_MARKET_PULSE, TOOL_SECTOR_PERF, TOOL_HEADLINES,
                           TOOL_SEARCH_DOCS, TOOL_READ_DOC]
 MARKET_ORACLE_TOOLS = [TOOL_STOCK_DATA, TOOL_MARKET_PULSE]
+CONCIERGE_TOOLS = [TOOL_SEARCH_DOCS, TOOL_READ_DOC]  # direct-answer path: user's own docs
 
 
 # ---------------------------------------------------------------------------
-# Wire the tools onto the scout agents. Importing this module is what turns the
-# two scouts into tool-using agents; entry points (pipeline, CLI, MCP) import it.
-# Done here rather than in agent_core so agent_core has no dependency on the data
-# layer (no circular import, and it still loads if yfinance/requests are absent).
+# Wire the tools onto the agents. Importing this module is what turns the
+# tool-using agents into tool-using agents; entry points (pipeline, CLI, MCP)
+# import it. Done here rather than in agent_core so agent_core has no dependency
+# on the data layer (no circular import, and it still loads if yfinance/requests
+# are absent).
 # ---------------------------------------------------------------------------
-from agent_core import AGENTS  # noqa: E402 — after tool defs, on purpose
+from agent_core import AGENTS, CONCIERGE  # noqa: E402 — after tool defs, on purpose
 
 AGENTS["signal_harvester"].tools = SIGNAL_HARVESTER_TOOLS
 AGENTS["market_oracle"].tools = MARKET_ORACLE_TOOLS
+CONCIERGE.tools = CONCIERGE_TOOLS
