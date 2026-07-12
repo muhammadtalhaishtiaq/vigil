@@ -5,6 +5,30 @@ routed multi-agent workflow — 2 tool-using agents, an LLM router, 4 analyst st
 a strategy step, an optional critic — turns live market data (yfinance + NewsAPI)
 **and the user's own documents** into a scored (0–100), tiered risk briefing.
 
+---
+
+## ▶ USING VIGIL IN CLAUDE CODE — no API key (Path 3)
+
+If you cloned this repo and ran `claude` here to **use** Vigil (not develop it):
+you don't need any API key — **this Claude session is the engine**. Live data
+comes from the `vigil-data` MCP server (auto-registered in `.mcp.json`).
+
+First-run, in order:
+1. **`/setup`** — a short conversational wizard that saves your company profile
+   (run this first; it personalizes every briefing).
+2. **`/brief`** — full multi-agent risk briefing for your company (score, top
+   risks, recommended actions).
+3. Or just ask in plain language: *"how exposed is my company to rising rates?"*
+
+Optional: drop your company docs (`.md`/`.txt`/`.csv`) in `workspace/docs/` so the
+analysis is grounded in your own numbers. Everything runs locally.
+
+*(Prefer a standalone app or cron/headless use? The `vigil` CLI and `vigil-mcp`
+server also exist — those DO need an LLM key. See README.)*
+
+---
+
+
 **Plan of record: `docs/MASTER_PLAN.md`** — the single living document (vision,
 use cases, Decisions & Reasons canvas, task plan T1–T9, v2/v3 roadmap). Read it
 before making changes; tick tasks as they land; never relitigate a D# decision

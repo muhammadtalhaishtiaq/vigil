@@ -70,6 +70,8 @@ the tasks that implement it. **Don't relitigate without the user.**
 | D14 | Keep `.claude/` workflows polished (career-ops pattern) | Contributors opening the repo in a coding agent get guided verify/audit workflows — cheap, open-source-friendly | Agent Ops | A2 | T7 |
 | D15 | Evaluator critic stays opt-in | Quality-vs-latency is a user trade-off, not ours to force | Evaluator-optimizer pattern | UC1 | done |
 | D16 | Every LLM number labeled analysis + disclaimer | Financial domain; trust through honesty is the product's moat | Guardrails; EU-AI-Act spirit | all | done |
+| D17 | **Tiered LLM routing: router answers/escalates, not "always full wave"** | Not every message needs analysis. The Orchestrator now routes to CONVERSATION (it answers meta/greetings itself, 0 extra agents) or DIRECT_QA (one Concierge agent answers simple data questions from profile+docs) or the analytical waves. LLM-driven, not regex — the router *understands* the message. Meta question dropped from ~130s/29k tokens (full wave) to ~10s/1.6k. | Routing pattern; right-size cost | UC1, UC4, all | done 2026-07-12 |
+| D18 | **Third path: "Vigil as a Claude Code project" (no API key)** | A required LLM key is a real adoption barrier ("people will refrain just to try it"). Career-ops model: clone the repo, run `claude`, and Claude Code IS the reasoning engine — zero keys. Additive, not a rewrite: prompts → `.claude/agents/` subagents; data layer/tools (no LLM needed) → a **data-only MCP server**; orchestration → slash commands. Modes 1 (CLI) + 2 (keyed MCP) stay for headless/cron users who have a key. | Zero-friction adoption; reuse; interoperability (MCP) | A1–A4, all UC | in progress |
 
 ## 5. What "DONE (v1)" means
 
@@ -116,6 +118,12 @@ console w/ wizard + live wave view, web app removed.
       analyst + oracle + synthesizer prompts against `run_evals.py` until median
       judge faithfulness ≥ the agreed bar. Needs the eval-bar sign-off (§7). Each
       iteration costs a live run — batch deliberately.
+- [ ] **T10 — Path 3: Vigil as a Claude Code project (no key)** (D18): a
+      data-only MCP server exposing the deterministic tools (stock/pulse/sectors/
+      headlines/doc-search — no LLM); `.claude/agents/*.md` subagents from the
+      prompts; `.claude/commands/` slash commands (`/brief`, `/verdict`);
+      CLAUDE.md path-3 instructions. Vertical slice first (data MCP + /brief +
+      analyst subagents), then expand. Modes 1 & 2 untouched.
 - [~] **T9 — Ship**: ✅ verify-vigil pass · ✅ honesty-auditor pass (6 findings
       fixed: CONTRIBUTING/AGENTS rewritten, "8 agents"→"8 components", invented
       action deadline removed, fear/greed UNKNOWN) · ✅ honest 6-commit series on

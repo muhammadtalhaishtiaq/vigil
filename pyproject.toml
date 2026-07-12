@@ -25,10 +25,11 @@ dev = ["pytest>=8"]
 [project.scripts]
 vigil = "vigil_cli:main"
 vigil-mcp = "vigil_mcp:main"
+vigil-data-mcp = "vigil_data_mcp:main"
 
 [tool.setuptools]
 py-modules = [
-    "vigil_cli", "vigil_mcp", "agent_core", "agent_pipeline",
+    "vigil_cli", "vigil_mcp", "vigil_data_mcp", "agent_core", "agent_pipeline",
     "tools", "tracing", "data_layer", "session_store",
 ]
 
