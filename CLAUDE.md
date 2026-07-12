@@ -18,7 +18,9 @@ First-run, in order:
    (run this first; it personalizes every briefing).
 2. **`/brief`** — full multi-agent risk briefing for your company (score, top
    risks, recommended actions).
-3. Or just ask in plain language: *"how exposed is my company to rising rates?"*
+3. **`/verdict <asset>`** — a quick BUY/WAIT/CAUTION/AVOID on one investment.
+4. **`/trend`** — your risk score over time (from past briefings).
+5. Or just ask in plain language: *"how exposed is my company to rising rates?"*
 
 Optional: drop your company docs (`.md`/`.txt`/`.csv`) in `workspace/docs/` so the
 analysis is grounded in your own numbers. Everything runs locally.

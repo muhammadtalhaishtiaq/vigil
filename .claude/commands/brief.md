@@ -35,6 +35,26 @@ Follow these steps:
 
 4. **Present** the synthesizer's briefing to the user, cleanly formatted.
 
+5. **Record the score** so /trend and future runs can show the change. Run this
+   with the repo's venv python, filling in the score and tier from the briefing
+   (preserves existing history — do not clobber it):
+
+   ```bash
+   .venv/bin/python -c "
+   from session_store import store
+   from datetime import datetime, timezone
+   s = store.get('cli') or {}
+   s.setdefault('history', [])
+   h = s.setdefault('score_history', [])
+   h.append({'date': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+             'score': SCORE, 'tier': 'TIER'})
+   s['score_history'] = h[-26:]
+   s['last_risk_score'] = SCORE; s['last_risk_tier'] = 'TIER'
+   store.set('cli', s)
+   print('recorded', SCORE)
+   "
+   ```
+
 Rules (non-negotiable): No fabricated data — if a tool returns no data, say so.
 Every figure not from the tools is a labeled estimate ("est."). Keep the
 disclaimer intact. This is analysis, not financial advice.
