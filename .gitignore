@@ -66,3 +66,22 @@ htmlcov/
 *.bak
 *.tmp
 *.orig
+
+# Runtime session data
+sessions.json
+
+# Run traces (observability — local only)
+traces/
+evals/reports/
+
+# User workspace (private company data — never committed)
+workspace/*
+!workspace/docs
+workspace/docs/*
+!workspace/docs/.gitkeep
+!workspace/wiki
+workspace/wiki/*
+!workspace/wiki/.gitkeep
+!workspace/reports
+workspace/reports/*
+!workspace/reports/.gitkeep

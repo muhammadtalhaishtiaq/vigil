@@ -1,208 +1,72 @@
 # Contributing to Vigil
 
-Thank you for your interest in contributing to Vigil! This guide covers how to run locally, add a new agent, modify routing, and follow the code style.
+Vigil is a **terminal + MCP** multi-agent financial-risk copilot — framework-free,
+built to production-agent standards. Contributions welcome; keep the bar high.
 
----
+Read first: [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md) (vision, decisions & reasons,
+task plan) and [docs/AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) (how the
+agents work). The `CLAUDE.md` rules apply to humans too.
 
-## Running Locally
-
-### Prerequisites
-- Python 3.10+
-- Two API keys: `AIML_API_KEY` (aimlapi.com) and `NEWSAPI_KEY` (newsapi.org)
-
-### Setup
+## Setup
 
 ```bash
-# 1. Clone
-git clone https://github.com/<your-username>/vigil.git
-cd vigil
+git clone https://github.com/muhammadtalhaishtiaq/vigil.git && cd vigil
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-# 2. Create virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+# keys (env only — never commit them)
+export AIML_API_KEY=...        # or LLM_API_KEY + LLM_BASE_URL
+export NEWSAPI_KEY=...         # optional (live headlines)
 
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure keys
-cp .env.example .env
-# Edit .env with your keys
-
-# 5. Run health check first
-python health_check.py
-
-# 6. Run the app
-streamlit run app.py
+vigil            # run the console
+pytest           # run the test suite (84 tests, offline, no keys needed)
 ```
 
-App runs at `http://localhost:8501`.
+## Project layout
 
-### Project Layout
-```
-vigil/
-├── app.py              ← Main dashboard entry point
-├── agent_pipeline.py   ← Add/modify agents here
-├── session_manager.py  ← Profile + conversation state
-├── data_layer.py       ← Live data (NewsAPI + yfinance)
-├── pages/
-│   └── profile.py      ← Company profile form
-└── prompts/            ← System prompts for each agent
-    └── *.txt
-```
+| File | What |
+|---|---|
+| `agent_core.py` | The `Agent` dataclass, the component registry, the tool-calling loop |
+| `agent_pipeline.py` | Orchestration: routing, waves, gates, parsing — a pure function |
+| `tools.py` | Capabilities agents call (market data + user docs) |
+| `tracing.py` | Per-run JSONL traces (tokens, latency, tool calls) |
+| `vigil_cli.py` / `vigil_mcp.py` | The two front-ends |
+| `prompts/*.txt` | One instruction file per component; output sections are JSON contracts |
+| `tests/` · `evals/` | Offline test suite · golden dataset + LLM-as-judge harness |
 
----
+## How to add an agent or component
 
-## Adding a New Agent
+1. Write `prompts/<name>.txt` — role, rules, and a **JSON output contract** if it
+   produces structured fields.
+2. Add an `Agent(...)` entry to the registry in `agent_core.py` (right-size the
+   model; give it tools only if it must observe the world).
+3. Route to it in `agent_pipeline.py` (an intent branch or a wave).
+4. Add tests in `tests/`; add a golden scenario in `evals/golden.json` if it
+   changes user-visible output.
 
-### Step 1 — Create the system prompt
+## The bar (non-negotiable — see CLAUDE.md guardrails)
+
+- **No fabricated data.** No hardcoded scores, fake briefings, or invented
+  statistics anywhere in code or prompts. Missing data is reported as missing.
+- **Docs match code.** If you change behavior, update the claim (README, CLAUDE.md,
+  AGENT_ARCHITECTURE.md). Verify by reading the code before writing the claim.
+- **Framework-free.** No web framework, no LangChain/LangGraph. The engine stays a
+  pure function; persistence lives in the front-ends.
+- **Secrets via env only.** Never commit `.env`, `sessions.json`, `traces/`, or
+  `workspace/` contents.
+- **Every user-facing number is labeled analysis, not fact**, with the disclaimer intact.
+
+## Before you open a PR
+
 ```bash
-# Create prompt file
-touch vigil/prompts/my_new_agent.txt
+pytest                              # must be green
+python -m py_compile *.py           # must compile
+vigil --help                        # CLI still boots
 ```
 
-Write a system prompt that clearly defines:
-- The agent's role and expertise domain
-- Expected input format
-- Expected output format (plain text or JSON)
-- Output length constraints
+- [ ] Tests pass; new behavior has tests
+- [ ] Docs/claims updated to match the change (README, CLAUDE.md, AGENT_ARCHITECTURE.md)
+- [ ] `AGENTS.md` roster updated if you added/renamed a component
+- [ ] No secrets, no fabricated data, no reintroduced web/agent frameworks
 
-### Step 2 — Register in `_MODEL_MAP`
-In `agent_pipeline.py`, add your agent to the model map:
-
-```python
-_MODEL_MAP: dict[str, str] = {
-    ...
-    "my_new_agent": "claude-sonnet-4-6",  # Choose appropriate model
-}
-```
-
-### Step 3 — Add to routing table
-In the `INTENT_ROUTING` dict, add your agent to the relevant intents:
-
-```python
-INTENT_ROUTING = {
-    "FULL_BRIEFING": [
-        ...,
-        "my_new_agent",   # Fires for full briefings
-    ],
-    "MY_NEW_INTENT": [    # Or create a new intent
-        "signal_harvester",
-        "my_new_agent",
-    ],
-}
-```
-
-### Step 4 — Update the Orchestrator prompt
-In `prompts/orchestrator.txt`, add your new intent to the classification section so the Orchestrator knows when to route to it.
-
-### Step 5 — Update `_ALL_AGENTS`
-The `_ALL_AGENTS` list must include your new agent for the header pipeline display:
-
-```python
-_ALL_AGENTS: list[str] = list(_MODEL_MAP.keys())
-# New agent auto-appears in the header flow visualization
-```
-
-### Step 6 — Handle outputs (optional)
-If your agent produces structured data, parse it in `run_pipeline()` STEP 4 and persist to `st.session_state` in STEP 5. Add a new tab in `_render_analysis_tabs()` in `app.py` if needed.
-
----
-
-## Modifying Intent Routing
-
-### Adding a new intent type
-
-1. **In `agent_pipeline.py`:**
-   ```python
-   INTENT_ROUTING["MY_NEW_INTENT"] = ["signal_harvester", "my_agent"]
-   ```
-
-2. **In `prompts/orchestrator.txt`:** Add classification examples for the new intent.
-
-3. **In `_STRIP_UPDATE_INTENTS`** (if it produces risk data):
-   ```python
-   _STRIP_UPDATE_INTENTS: frozenset[str] = frozenset({
-       ...,
-       "MY_NEW_INTENT",  # Add only if it produces top_risks/top_actions
-   })
-   ```
-
-4. **In `session_manager.py` `enhance_query_with_context()`:** If the new intent needs special context injection, add a branch there.
-
-### Changing which agents fire for an existing intent
-Simply edit the list in `INTENT_ROUTING`. The pipeline will automatically dispatch to listed agents in parallel.
-
-### Changing the investment keyword detection
-In `agent_pipeline.py`, find the `_inv_kw` regex and add/remove keywords:
-```python
-_inv_kw = re.compile(
-    r"\b(buy|sell|invest|...|YOUR_NEW_KEYWORD)\b",
-    re.IGNORECASE,
-)
-```
-
----
-
-## Code Style
-
-### Python
-- **Formatter:** `black` with default settings (line length 88)
-- **Type hints:** All function signatures must have type hints
-- **Docstrings:** One-line for simple functions, multi-line for pipeline steps
-- **Error handling:** Wrap all external API calls in `try/except`; log errors, never crash the pipeline
-
-```python
-# Good
-def run_agent(agent_name: str, prompt: str, context: str) -> str:
-    """Call a single agent and return its text output."""
-    try:
-        ...
-    except Exception as exc:
-        logger.error("Agent %s failed: %s", agent_name, exc)
-        return ""  # graceful fallback
-
-# Bad — no type hints, no error handling
-def run_agent(agent_name, prompt, context):
-    return client.chat.completions.create(...)
-```
-
-### Streamlit / HTML
-- All UI strings must use `unsafe_allow_html=True` with the design system CSS classes
-- Never hardcode colors — use `var(--green)`, `var(--text2)`, etc.
-- New UI sections should follow the existing `fade-up` animation pattern
-
-### Commit Messages
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat: add sentiment agent for social media signals
-fix: resolve pipeline crash when AIML API times out
-docs: update AGENTS.md with Market Oracle output format
-refactor: extract _build_context() from run_pipeline()
-```
-
-### Branch Naming
-```
-feature/new-agent-name
-bugfix/pipeline-timeout
-hotfix/api-key-resolution
-```
-
----
-
-## Pull Request Checklist
-
-- [ ] `python health_check.py` passes (all 3/3)
-- [ ] `streamlit run app.py` starts without errors
-- [ ] Agent count in docs/comments is still 8 (never 7)
-- [ ] New agents added to `_MODEL_MAP` and `INTENT_ROUTING`
-- [ ] `_STRIP_UPDATE_INTENTS` updated if new intent produces risk data
-- [ ] AGENTS.md updated for new agents
-- [ ] No API keys committed (check `.gitignore`)
-- [ ] Type hints added to new functions
-
----
-
-## Questions?
-
-Open a GitHub Issue or reach out via the lablab.ai hackathon submission thread.
+Run the `verify-vigil` skill (or its steps) as a final gate. Thanks for contributing!

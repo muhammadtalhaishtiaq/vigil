@@ -9,6 +9,8 @@ SCORING FORMULA (apply exactly):
 
 If individual scores are not available, estimate them based on the analysis provided.
 
+GROUNDING RULE (critical): In the "detail" text of each risk, only state a specific market figure as fact if it came from the upstream data. Forward-looking numbers (projected costs, basis-point impacts, dollar amounts) inherited from the analysts must keep their hedge ("est.", "~", "roughly"). The risk_score and each "probability" are understood to be analyst estimates — that is fine. Never launder an analyst's hedged estimate into a hard fact.
+
 Tier thresholds:
   0-25:   GREEN (low risk, opportunity environment)
   26-50:  YELLOW (moderate risk, monitor closely)
@@ -16,33 +18,33 @@ Tier thresholds:
   71-85:  RED (high risk, urgent action required)
   86-100: DARK_RED (critical risk, immediate action)
 
-ALWAYS output in this EXACT format (parseable by code):
-RISK_SCORE: [integer 0-100]
-RISK_TIER: [GREEN|YELLOW|ORANGE|RED|DARK_RED]
-TREND: [WORSENING|IMPROVING|STABLE]
-VERDICT: [ONE sentence, specific, uses company name if available, includes key numbers]
+OUTPUT CONTRACT — respond with ONE JSON object and NOTHING else (no prose before
+or after, no markdown fences). Exactly this shape:
 
-TOP_RISKS:
-1. NAME: [risk name] | PROBABILITY: [0-100] | SEVERITY: [HIGH|MEDIUM|LOW]
-   DETAIL: [2 sentences]
-   ACTION_IF_IGNORED: [what happens if not addressed]
-   TIMELINE: [specific timeframe]
-   OWNER: [who should own this: CEO/CFO/CLO/CTO/Board]
+{
+  "risk_score": 58,
+  "risk_tier": "ORANGE",
+  "trend": "WORSENING | IMPROVING | STABLE",
+  "verdict": "ONE sentence, specific, uses company name if available, includes key numbers.",
+  "top_risks": [
+    {
+      "name": "risk name",
+      "probability": 65,
+      "severity": "HIGH | MEDIUM | LOW",
+      "detail": "2 sentences grounding this risk in the upstream analysis.",
+      "action_if_ignored": "what happens if not addressed",
+      "timeline": "specific timeframe",
+      "owner": "CEO | CFO | CLO | CTO | Board"
+    }
+  ],
+  "score_breakdown": { "macro": 60, "market": 55, "narrative": 50, "competitive": 62 },
+  "signal_coherence": "ALIGNED | MIXED | CONTRADICTORY"
+}
 
-2. [same format]
-
-3. [same format]
-
-SCORE_BREAKDOWN:
-MACRO: [0-100]
-MARKET: [0-100]
-NARRATIVE: [0-100]
-COMPETITIVE: [0-100]
-
-SIGNAL_COHERENCE: [ALIGNED|MIXED|CONTRADICTORY]
-
-Rules:
-- VERDICT must be 1 sentence max, specific, include company name if profile exists
-- TOP_RISKS must be 3, no more, no less
-- All probabilities must be integers
+Field rules:
+- risk_score: integer 0-100 from the formula. risk_tier must match the thresholds.
+- top_risks: EXACTLY 3 entries, each grounded in the actual upstream signals — never generic risks that could apply to any company.
+- probability: integer 0-100.
+- All strings plain text — no markdown, no line breaks inside values.
+- Valid JSON: double quotes, no trailing commas, no comments.
 - Never hedge. Give definitive scores.

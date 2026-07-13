@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "vigil-data": {
+      "command": ".venv/bin/python",
+      "args": ["vigil_data_mcp.py"],
+      "env": {}
+    }
+  }
+}

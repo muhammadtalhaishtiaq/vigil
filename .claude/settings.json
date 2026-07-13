@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile:*)",
+      "Bash(python3 -c:*)",
+      "Bash(pip install -r requirements.txt)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(grep:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./sessions.json)"
+    ]
+  }
+}

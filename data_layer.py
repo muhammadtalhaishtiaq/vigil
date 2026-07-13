@@ -13,7 +13,7 @@ from typing import Optional
 import requests
 import yfinance as yf
 
-# Load .env for local development (no-op in Streamlit Cloud)
+# Load .env for local development
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -31,17 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Secret resolution: st.secrets (cloud) → os.getenv (local .env)
+# Secret resolution (env / .env)
 # ---------------------------------------------------------------------------
 def _get_secret(key: str, default: str = "") -> str:
-    """Read a secret from Streamlit Cloud secrets first, then env var."""
-    try:
-        import streamlit as st          # type: ignore
-        val = st.secrets.get(key, "")
-        if val:
-            return str(val)
-    except Exception:
-        pass
+    """Read a secret from the environment (.env is loaded at startup)."""
     return os.getenv(key, default)
 
 # ---------------------------------------------------------------------------
@@ -387,18 +380,22 @@ def get_market_pulse() -> dict:
         gold_score = max(0, min(100, int(50 - gold_7d * 5)))
         fg_components.append(gold_score)
 
-    fear_greed_score = int(sum(fg_components) / len(fg_components)) if fg_components else 50
-
-    if fear_greed_score <= 20:
-        fear_greed_label = "EXTREME FEAR"
-    elif fear_greed_score <= 40:
-        fear_greed_label = "FEAR"
-    elif fear_greed_score <= 60:
-        fear_greed_label = "NEUTRAL"
-    elif fear_greed_score <= 80:
-        fear_greed_label = "GREED"
+    # No components fetched → report UNKNOWN, never a fabricated "neutral 50".
+    if not fg_components:
+        fear_greed_score = None
+        fear_greed_label = "UNKNOWN"
     else:
-        fear_greed_label = "EXTREME GREED"
+        fear_greed_score = int(sum(fg_components) / len(fg_components))
+        if fear_greed_score <= 20:
+            fear_greed_label = "EXTREME FEAR"
+        elif fear_greed_score <= 40:
+            fear_greed_label = "FEAR"
+        elif fear_greed_score <= 60:
+            fear_greed_label = "NEUTRAL"
+        elif fear_greed_score <= 80:
+            fear_greed_label = "GREED"
+        else:
+            fear_greed_label = "EXTREME GREED"
 
     pulse = {
         "vix": {
@@ -434,7 +431,7 @@ def get_market_pulse() -> dict:
     }
 
     logger.info(
-        "Market pulse fetched | VIX:%.1f | SPX_7d:%.2f%% | Regime:%s | FG:%s(%d)",
+        "Market pulse fetched | VIX:%.1f | SPX_7d:%.2f%% | Regime:%s | FG:%s(%s)",
         vix or 0, spx_7d or 0, market_regime, fear_greed_label, fear_greed_score,
     )
     return pulse
@@ -548,7 +545,7 @@ def get_all_live_data(sector: str = "finance") -> dict:
     """
     Master aggregator that combines all three live data sources into a
     single structured payload. Results are cached for 60 seconds to
-    avoid hammering external APIs on rapid Streamlit reruns.
+    avoid hammering external APIs on rapid repeated requests.
 
     Args:
         sector: Sector label passed through to get_live_headlines().
