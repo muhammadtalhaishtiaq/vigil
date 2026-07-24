@@ -1,4 +1,4 @@
-# ⚡ VIGIL — your terminal's financial-risk copilot
+# ⚡ VIGIL-your terminal's financial-risk copilot
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org)
 [![Runs in Claude Code — no API key](https://img.shields.io/badge/Claude%20Code-no%20API%20key-8A63D2?style=flat)](#3--in-claude-code--no-api-key)
